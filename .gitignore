@@ -1,0 +1,9 @@
+node_modules/
+target/
+build/
+.svelte-kit/
+dist/
+*.sig
+signing.key
+.DS_Store
+Thumbs.db

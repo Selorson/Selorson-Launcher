@@ -1,0 +1,336 @@
+{
+  "$schema": "./ecosystem-manifest.schema.json",
+  "schema_version": 1,
+  "ecosystem_name": "Selorson Studio Ecosystem",
+  "globals": {
+    "ecosystem_root": "E:\\Selorson-Ecosystem",
+    "vault_root": "%LOCALAPPDATA%\\Selorson Launcher\\vault",
+    "max_backup_generations": 2,
+    "shared_gpu_busy_ports": [
+      { "port": 8189, "label": "ComfyUI Tác giả (:8189)" },
+      { "port": 8188, "label": "ComfyUI FilmForge (:8188)" }
+    ]
+  },
+  "tools": [
+    {
+      "id": "cowriter",
+      "order": 1,
+      "name": "Co-Writer",
+      "subtitle": "Kho tư liệu đa ngành, Kinh Thánh Thế Giới, RAG & Chế tác Manga Akunalia",
+      "category": "Sáng tác & Kinh Thánh",
+      "accent_color": "#F59E0B",
+      "icon": "%ECOSYSTEM_ROOT%\\Co-Writer\\app\\shell\\src-tauri\\icons\\128x128.png",
+      "install": {
+        "installer_kind": "tauri-nsis",
+        "exe_candidates": [
+          "%LOCALAPPDATA%\\Co-Writer\\cowriter.exe"
+        ],
+        "registry_names": ["Co-Writer"],
+        "exe_filename": "cowriter.exe"
+      },
+      "updater": {
+        "default_channel": "stable",
+        "channels": {
+          "stable": {
+            "label": "Bản chính thức",
+            "endpoint": "https://github.com/selorsontales-ai/Co-Writer-Release/releases/latest/download/latest.json",
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkyN0Q2MUM0NEFFOTlGMDMKUldRRG4rbEt4R0Y5a20yTUJtM1RZQlAvSkFjUGo0V3FMdW9sY20wSlU0U09LNGllY3pwZlNtZ28K"
+          }
+        }
+      },
+      "protection": {
+        "running_processes": ["cowriter.exe", "cowriter-core.exe"],
+        "health_ports": [
+          { "port": 8787, "label": "Co-Writer Core (:8787)", "block_update_when_open": true }
+        ],
+        "immutable_files": [
+          "%LOCALAPPDATA%\\Co-Writer\\cowriter-core.exe"
+        ],
+        "backup_files": [
+          "%LOCALAPPDATA%\\Co-Writer\\co_writer.db",
+          "%LOCALAPPDATA%\\Co-Writer\\co_writer.db-wal",
+          "%LOCALAPPDATA%\\Co-Writer\\co_writer.db-shm",
+          "%LOCALAPPDATA%\\Co-Writer\\master.key",
+          "%LOCALAPPDATA%\\Co-Writer\\secret.key",
+          "%LOCALAPPDATA%\\Co-Writer\\rubric.yaml"
+        ],
+        "verify_external_paths": []
+      },
+      "git": {
+        "repo_path": "%ECOSYSTEM_ROOT%\\Co-Writer",
+        "watch_paths": ["app"],
+        "tag_prefix": "v",
+        "hot_swap_hint": "Nhờ AI kiểm thử và Hot-Swap Co-Writer từ D:\\Git-repo\\Co-Writer (giữ nguyên cowriter-core.exe) hoặc đóng tag phát hành mới lên GitHub."
+      }
+    },
+    {
+      "id": "toneforge",
+      "order": 2,
+      "name": "ToneForge Studio",
+      "subtitle": "Xưởng sản xuất Âm nhạc Hybrid DAW, tách Stem UVR5 & Mastering -14 LUFS",
+      "category": "Âm nhạc & DSP",
+      "accent_color": "#14B8A6",
+      "icon": "%ECOSYSTEM_ROOT%\\ToneForge\\shell\\src-tauri\\icons\\128x128.png",
+      "install": {
+        "installer_kind": "tauri-nsis",
+        "exe_candidates": [
+          "%LOCALAPPDATA%\\ToneForge Studio\\toneforge-studio.exe",
+          "%LOCALAPPDATA%\\ToneForge Studio\\ToneForge Studio.exe",
+          "F:\\FL studio\\toneforge\\ToneForge_Studio.exe"
+        ],
+        "registry_names": ["ToneForge Studio", "ToneForge"],
+        "exe_filename": "toneforge-studio.exe"
+      },
+      "updater": {
+        "default_channel": "stable",
+        "channels": {
+          "stable": {
+            "label": "Bản chính thức",
+            "endpoint": "https://github.com/Selorson/ToneForge-Release/releases/latest/download/latest.json",
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdERDE3RDFDOTczRUFCOUEKUldTYXF6NlhISDNSZmZGYUVFcFoxbHNWbitzOW1CVTMyQWNTeHdrMFhxVG93eXBwZDNCOHdBaVAK"
+          }
+        }
+      },
+      "protection": {
+        "running_processes": ["toneforge-studio.exe", "ToneForge_Studio.exe", "ToneForge Studio.exe"],
+        "health_ports": [],
+        "immutable_files": [],
+        "backup_files": [],
+        "verify_external_paths": [
+          "E:\\Akunarch\\bin\\akunarch-audio-cli.exe"
+        ]
+      },
+      "git": {
+        "repo_path": "%ECOSYSTEM_ROOT%\\ToneForge",
+        "watch_paths": ["."],
+        "tag_prefix": "v",
+        "hot_swap_hint": "Nhờ AI đóng tag phát hành mới cho ToneForge tại F:\\FL studio\\toneforge để GitHub Actions tự xuất bản cài chuẩn."
+      }
+    },
+    {
+      "id": "akunarch",
+      "order": 3,
+      "name": "Akunarch",
+      "subtitle": "Đại Xưởng Kiến trúc 3D, Sa bàn Cơ khí, Thế giới mở & Phông nền Manga 2K",
+      "category": "Kiến trúc 3D & Thế giới",
+      "accent_color": "#8B5CF6",
+      "icon": "%ECOSYSTEM_ROOT%\\Akunarch\\app\\src-tauri\\icons\\128x128.png",
+      "install": {
+        "installer_kind": "tauri-nsis",
+        "exe_candidates": [
+          "%LOCALAPPDATA%\\Akunarch\\akunarch.exe"
+        ],
+        "registry_names": ["Akunarch"],
+        "exe_filename": "akunarch.exe"
+      },
+      "updater": {
+        "default_channel": "stable",
+        "channels": {
+          "stable": {
+            "label": "Bản chính thức",
+            "endpoint": "https://github.com/Selorson/Akunarch-Release/releases/latest/download/latest.json",
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk4RDg0OEFBNTY0RkRBNkIKUldScjJrOVdxa2pZbUlwSE91dllyV1FLM0ZuTFpjN0dLcGJUZ3RkUjE3QytZYTZ6aFp4a3hteDAK"
+          }
+        }
+      },
+      "protection": {
+        "running_processes": ["akunarch.exe"],
+        "health_ports": [],
+        "immutable_files": [],
+        "backup_files": [
+          "%LOCALAPPDATA%\\Akunarch\\akunarch.db",
+          "%LOCALAPPDATA%\\Akunarch\\akunarch.db-wal",
+          "%LOCALAPPDATA%\\Akunarch\\akunarch.db-shm"
+        ],
+        "verify_external_paths": []
+      },
+      "git": {
+        "repo_path": "%ECOSYSTEM_ROOT%\\Akunarch",
+        "watch_paths": ["app"],
+        "tag_prefix": "v",
+        "hot_swap_hint": "Nhờ AI kiểm tra SHA-256 và Hot-Swap Akunarch tại E:\\Akunarch hoặc đẩy tag vX.Y.Z lên Akunarch-Release."
+      }
+    },
+    {
+      "id": "selorson-admin",
+      "order": 4,
+      "name": "Selorson Admin",
+      "subtitle": "Đích đến trung tâm kiểm duyệt Nháp Beta & Xuất bản đa phương tiện lên Alpha",
+      "category": "Xuất bản Trung tâm",
+      "accent_color": "#EC4899",
+      "icon": "%ECOSYSTEM_ROOT%\\Selorson\\frontend-v3\\src-tauri\\icons\\128x128.png",
+      "install": {
+        "installer_kind": "tauri-nsis",
+        "exe_candidates": [
+          "%LOCALAPPDATA%\\Selorson Admin\\app.exe",
+          "%LOCALAPPDATA%\\Selorson Admin\\Selorson Admin.exe"
+        ],
+        "registry_names": ["Selorson Admin"],
+        "exe_filename": "app.exe"
+      },
+      "updater": {
+        "default_channel": "stable",
+        "channels": {
+          "stable": {
+            "label": "Desktop Admin",
+            "endpoint": "https://github.com/selorsontales-ai/selorson-ad/releases/latest/download/latest.json",
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlEMjMwMkE3MThBRkUzQzkKUldUSjQ2OFlwd0lqblVpcEdpMW9STlBxcmU5SnpiTndQc00wbkhjcGNMWll0TFh6Y2JIcTJBcDUK"
+          }
+        }
+      },
+      "protection": {
+        "running_processes": ["app.exe", "Selorson Admin.exe"],
+        "health_ports": [
+          { "port": 8001, "label": "Selorson Backend (:8001)", "block_update_when_open": false }
+        ],
+        "immutable_files": [],
+        "backup_files": [],
+        "verify_external_paths": []
+      },
+      "git": {
+        "repo_path": "%ECOSYSTEM_ROOT%\\Selorson\\frontend-v3",
+        "watch_paths": ["src", "src-tauri", "static"],
+        "tag_prefix": "desktop-admin-v",
+        "hot_swap_hint": "Nhờ AI build flavor desktop-admin tại E:\\Selorson\\frontend-v3 hoặc đẩy tag desktop-admin-vX.Y.Z lên GitHub."
+      }
+    },
+    {
+      "id": "neuroforge",
+      "order": 5,
+      "name": "NeuroForge RTX",
+      "subtitle": "Trạm điều phối Cloud AI & phân phối sản phẩm tự động ra các kênh cuối nguồn",
+      "category": "Phân phối & Tự động hóa",
+      "accent_color": "#EF4444",
+      "icon": "%ECOSYSTEM_ROOT%\\NeuroForge\\tauri-app\\src-tauri\\icons-rtx\\128x128.png",
+      "install": {
+        "installer_kind": "tauri-nsis",
+        "exe_candidates": [
+          "%LOCALAPPDATA%\\NeuroForge RTX\\neuroforge.exe",
+          "%LOCALAPPDATA%\\NeuroForge\\neuroforge.exe"
+        ],
+        "registry_names": ["NeuroForge RTX", "NeuroForge"],
+        "exe_filename": "neuroforge.exe"
+      },
+      "updater": {
+        "default_channel": "rtx",
+        "channels": {
+          "rtx": {
+            "label": "Bản RTX (Máy chủ GPU)",
+            "endpoint": "https://github.com/Selorson/Neuro-Fox-Release/releases/latest/download/latest-rtx.json",
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE0NjRGRTlGNDMxNERCREYKUldUZjJ4UkRuLzVrRlBrbGYwTWJsaXJJb1JaYUQ2NVhQZEovZzRDbHpaa0VWaURxQjFQMERUb2IK"
+          },
+          "standard": {
+            "label": "Bản Tiêu chuẩn",
+            "endpoint": "https://github.com/Selorson/Neuro-Fox-Release/releases/latest/download/latest.json",
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE0NjRGRTlGNDMxNERCREYKUldUZjJ4UkRuLzVrRlBrbGYwTWJsaXJJb1JaYUQ2NVhQZEovZzRDbHpaa0VWaURxQjFQMERUb2IK"
+          }
+        }
+      },
+      "protection": {
+        "running_processes": ["neuroforge.exe"],
+        "health_ports": [
+          { "port": 9222, "label": "Trình duyệt tự động (:9222)", "block_update_when_open": true }
+        ],
+        "immutable_files": [],
+        "backup_files": [],
+        "verify_external_paths": []
+      },
+      "git": {
+        "repo_path": "%ECOSYSTEM_ROOT%\\NeuroForge",
+        "watch_paths": ["tauri-app", "scripts"],
+        "tag_prefix": "v",
+        "hot_swap_hint": "Nhờ AI đóng tag vX.Y.Z tại E:\\NeuroForge để GitHub Actions tự build cả bản RTX lẫn Tiêu chuẩn."
+      }
+    },
+    {
+      "id": "filmforge",
+      "order": 6,
+      "name": "FilmForge",
+      "subtitle": "Xưởng dựng video AI độc lập (MiniMax H3 fl2v/ref2v + SeedVR2 + FILM 48fps)",
+      "category": "Điện ảnh & Video AI",
+      "accent_color": "#3B82F6",
+      "icon": "%ECOSYSTEM_ROOT%\\FilmForge\\app\\src-tauri\\icons\\128x128.png",
+      "install": {
+        "installer_kind": "tauri-nsis",
+        "exe_candidates": [
+          "%LOCALAPPDATA%\\FilmForge\\filmforge.exe"
+        ],
+        "registry_names": ["FilmForge"],
+        "exe_filename": "filmforge.exe"
+      },
+      "updater": {
+        "default_channel": "stable",
+        "channels": {
+          "stable": {
+            "label": "Bản chính thức",
+            "endpoint": "https://github.com/Selorson/FilmForge-Release/releases/latest/download/latest.json",
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVCNkMzMzA2QkU5NTk1MkUKUldRdWxaVytCak5zNjF6T1VmalBHZndvajhGQXJXam0yUUtMdElFbFV5d2dsWmd4SmR5cTB2UlQK"
+          }
+        }
+      },
+      "protection": {
+        "running_processes": ["filmforge.exe"],
+        "health_ports": [
+          { "port": 8188, "label": "ComfyUI Video (:8188)", "block_update_when_open": false }
+        ],
+        "immutable_files": [],
+        "backup_files": [
+          "%APPDATA%\\com.selorson.filmforge\\settings.json"
+        ],
+        "verify_external_paths": []
+      },
+      "git": {
+        "repo_path": "%ECOSYSTEM_ROOT%\\FilmForge",
+        "watch_paths": ["app"],
+        "tag_prefix": "v",
+        "hot_swap_hint": "Nhờ AI kiểm thử và đóng tag phát hành mới cho FilmForge tại E:\\FilmForge."
+      }
+    },
+    {
+      "id": "castcam",
+      "order": 7,
+      "name": "CamCast Studio",
+      "subtitle": "Quay màn hình kèm góc Camera & thu âm Zero-RAM Chunked Disk Streaming",
+      "category": "Thu hình & Trình diễn",
+      "accent_color": "#10B981",
+      "icon": "%ECOSYSTEM_ROOT%\\CastCam\\screen-cam-app\\shell\\src-tauri\\icons\\128x128.png",
+      "install": {
+        "installer_kind": "tauri-nsis",
+        "exe_candidates": [
+          "%LOCALAPPDATA%\\CamCast Studio\\camcast-studio.exe",
+          "%LOCALAPPDATA%\\CamCast Studio\\CamCast Studio.exe",
+          "F:\\CastCam\\CamCast_Studio.exe"
+        ],
+        "registry_names": ["CamCast Studio", "CastCam"],
+        "exe_filename": "camcast-studio.exe"
+      },
+      "updater": {
+        "default_channel": "stable",
+        "channels": {
+          "stable": {
+            "label": "Bản chính thức",
+            "endpoint": "https://github.com/selorsontales-ai/CastCam-Release/releases/latest/download/latest.json",
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc4NzNDMjA5QTQ0RDEzOTkKUldTWkUwMmtDY0p6ZU9QRU55UStiTDk0ZVAyaGVvb1JCSk12Z051V3JndWFjY2RuS1pzeXUwU3oK"
+          }
+        }
+      },
+      "protection": {
+        "running_processes": ["camcast-studio.exe", "CamCast_Studio.exe", "CamCast Studio.exe"],
+        "health_ports": [
+          { "port": 8788, "label": "Luồng ghi đĩa CastCam (:8788)", "block_update_when_open": true }
+        ],
+        "immutable_files": [],
+        "backup_files": [],
+        "verify_external_paths": [
+          "F:\\CastCam\\Videos_Da_Quay"
+        ]
+      },
+      "git": {
+        "repo_path": "%ECOSYSTEM_ROOT%\\CastCam",
+        "watch_paths": ["screen-cam-app"],
+        "tag_prefix": "v",
+        "hot_swap_hint": "Nhờ AI đóng tag phát hành mới cho CastCam tại F:\\CastCam để xuất bản cài NSIS chuẩn."
+      }
+    }
+  ]
+}

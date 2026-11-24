@@ -1,0 +1,45 @@
+[package]
+name = "selorson-launcher"
+version = "0.1.0"
+description = "Selorson Launcher — Trung tâm điều phối, cập nhật bảo hộ Ed25519 & kiểm tra mã nguồn cho Hệ sinh thái Selorson"
+authors = ["Selorson"]
+edition = "2024"
+rust-version = "1.90"
+
+[lib]
+name = "selorson_launcher_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+futures-util = "0.3"
+semver = "1.0"
+minisign-verify = "0.2"
+base64 = "0.22"
+sha2 = "0.10"
+chrono = { version = "0.4", features = ["serde"] }
+tempfile = "3"
+winreg = "0.55"
+tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }
+tauri-plugin-opener = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Threading",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }

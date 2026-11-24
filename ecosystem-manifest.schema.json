@@ -1,0 +1,112 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Selorson Ecosystem Manifest",
+  "description": "Cấu hình trung tâm cho Selorson Launcher. Khai báo thêm công cụ mới vào mảng tools để tự động nhận diện mà không cần sửa mã nguồn.",
+  "type": "object",
+  "required": ["schema_version", "ecosystem_name", "globals", "tools"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schema_version": { "type": "integer", "const": 1 },
+    "ecosystem_name": { "type": "string", "minLength": 1 },
+    "globals": {
+      "type": "object",
+      "required": ["ecosystem_root", "vault_root"],
+      "properties": {
+        "ecosystem_root": { "type": "string", "minLength": 1 },
+        "vault_root": { "type": "string", "minLength": 1 },
+        "max_backup_generations": { "type": "integer", "minimum": 1, "default": 2 },
+        "shared_gpu_busy_ports": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["port", "label"],
+            "properties": {
+              "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+              "label": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "tools": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "order", "name", "subtitle", "category", "accent_color", "install", "updater", "protection", "git"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "order": { "type": "integer", "minimum": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "subtitle": { "type": "string" },
+          "category": { "type": "string" },
+          "accent_color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+          "icon": { "type": "string" },
+          "install": {
+            "type": "object",
+            "required": ["installer_kind", "exe_candidates", "exe_filename"],
+            "properties": {
+              "installer_kind": { "type": "string", "enum": ["tauri-nsis"] },
+              "exe_candidates": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+              "registry_names": { "type": "array", "items": { "type": "string" } },
+              "exe_filename": { "type": "string", "minLength": 1 },
+              "launch_args": { "type": "array", "items": { "type": "string" } },
+              "working_dir": { "type": "string" }
+            }
+          },
+          "updater": {
+            "type": "object",
+            "required": ["default_channel", "channels"],
+            "properties": {
+              "default_channel": { "type": "string", "minLength": 1 },
+              "channels": {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "object",
+                  "required": ["label", "endpoint", "pubkey"],
+                  "properties": {
+                    "label": { "type": "string" },
+                    "endpoint": { "type": "string", "format": "uri" },
+                    "pubkey": { "type": "string", "minLength": 40 }
+                  }
+                }
+              }
+            }
+          },
+          "protection": {
+            "type": "object",
+            "properties": {
+              "running_processes": { "type": "array", "items": { "type": "string" } },
+              "health_ports": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["port", "label"],
+                  "properties": {
+                    "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+                    "label": { "type": "string" },
+                    "block_update_when_open": { "type": "boolean", "default": true }
+                  }
+                }
+              },
+              "immutable_files": { "type": "array", "items": { "type": "string" } },
+              "backup_files": { "type": "array", "items": { "type": "string" } },
+              "verify_external_paths": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "git": {
+            "type": "object",
+            "required": ["repo_path", "watch_paths"],
+            "properties": {
+              "repo_path": { "type": "string", "minLength": 1 },
+              "watch_paths": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+              "tag_prefix": { "type": "string", "default": "v" },
+              "hot_swap_hint": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
