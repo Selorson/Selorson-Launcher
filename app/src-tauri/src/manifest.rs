@@ -165,6 +165,13 @@ pub fn resolve_manifest_path() -> PathBuf {
             if resources.exists() {
                 return resources;
             }
+            let bundled_up = dir
+                .join("_up_")
+                .join("_up_")
+                .join("ecosystem-manifest.json");
+            if bundled_up.exists() {
+                return bundled_up;
+            }
             // Dev / cargo test fallback walking up to repo root
             let mut cursor = Some(dir);
             for _ in 0..6 {

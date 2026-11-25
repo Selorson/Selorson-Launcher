@@ -44,8 +44,11 @@ pub enum ReleaseComparisonState {
 
 pub fn build_http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
-        .user_agent("Selorson-Launcher/0.1.0")
-        .timeout(Duration::from_secs(12))
+        .user_agent(concat!("Selorson-Launcher/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(Duration::from_secs(15))
+        // Chỉ ngắt nếu luồng tải đứng im 0 byte suốt 60 giây; không giới hạn tổng thời gian tải gói lớn (200+ MB)
+        .read_timeout(Duration::from_secs(60))
+        .tcp_keepalive(Duration::from_secs(30))
         .build()
         .map_err(|e| format!("Không khởi tạo được HTTP client: {e}"))
 }
@@ -58,6 +61,7 @@ pub async fn fetch_remote_release(
 ) -> Result<RemoteReleaseInfo, String> {
     let resp = client
         .get(endpoint)
+        .timeout(Duration::from_secs(15))
         .send()
         .await
         .map_err(|e| format!("Không kết nối được tới kênh phát hành: {e}"))?;

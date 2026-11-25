@@ -1,0 +1,59 @@
+name: Warm Rust Cache
+
+# Nạp sẵn cache dependency Rust trên nhánh main để khi đẩy tag v* (release.yml)
+# chỉ cần biên dịch lại crate selorson-launcher (~3–4 phút thay vì ~18 phút),
+# tiết kiệm tối đa hạn mức CI khi repo Selorson/Selorson-Launcher ở chế độ Private.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/src-tauri/Cargo.lock"
+      - "app/src-tauri/Cargo.toml"
+      - ".github/workflows/warm-cache.yml"
+      - ".github/workflows/release.yml"
+  schedule:
+    - cron: "0 1 * * 1" # Thứ Hai 08:00 giờ VN — giữ cache không hết hạn 7 ngày
+  workflow_dispatch: {}
+
+concurrency:
+  group: warm-cache
+  cancel-in-progress: true
+
+jobs:
+  warm-cache:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      # PHẢI trùng phiên bản ghim trong release.yml
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.98.0"
+
+      - name: Rust Cache
+        id: rust_cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "app/src-tauri"
+          shared-key: "selorson-launcher-release"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install JS dependencies
+        if: steps.rust_cache.outputs.cache-hit != 'true'
+        working-directory: app
+        run: npm ci
+
+      - name: Warm Rust build cache
+        if: steps.rust_cache.outputs.cache-hit != 'true'
+        working-directory: app
+        run: npx tauri build --no-bundle

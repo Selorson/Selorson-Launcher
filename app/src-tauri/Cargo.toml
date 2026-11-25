@@ -1,7 +1,8 @@
 [package]
 name = "selorson-launcher"
-version = "0.1.0"
+version = "0.1.1"
 description = "Selorson Launcher — Trung tâm điều phối, cập nhật bảo hộ Ed25519 & kiểm tra mã nguồn cho Hệ sinh thái Selorson"
+repository = "https://github.com/Selorson/Selorson-Launcher.git"
 authors = ["Selorson"]
 edition = "2024"
 rust-version = "1.90"
@@ -31,6 +32,8 @@ tempfile = "3"
 winreg = "0.55"
 tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }
 tauri-plugin-opener = "2"
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

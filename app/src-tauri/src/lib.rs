@@ -463,6 +463,14 @@ async fn validate_manifest_now(
     }
 }
 
+#[tauri::command]
+async fn prepare_self_update_exit(
+    state: tauri::State<'_, Arc<AppSharedState>>,
+) -> Result<(), String> {
+    state.explicit_quit.store(true, Ordering::Relaxed);
+    Ok(())
+}
+
 fn spawn_manifest_hot_reload_watcher(app: AppHandle, shared: Arc<AppSharedState>) {
     tauri::async_runtime::spawn(async move {
         let mut last_stamp: Option<(std::time::SystemTime, u64)> = std::fs::metadata(&shared.manifest_path)
@@ -579,6 +587,284 @@ pub fn acquire_single_instance_or_signal_existing() -> Option<usize> {
     }
 }
 
+#[cfg(windows)]
+mod win_aumid {
+    use core::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::{Path, PathBuf};
+
+    pub const LAUNCHER_AUMID: &str = "vn.selorson.launcher";
+    const APP_ICON_ICO: &[u8] = include_bytes!("../icons/icon.ico");
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Guid {
+        data1: u32,
+        data2: u16,
+        data3: u16,
+        data4: [u8; 8],
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct PropertyKey {
+        fmtid: Guid,
+        pid: u32,
+    }
+
+    #[repr(C)]
+    struct PropVariant {
+        vt: u16,
+        w_reserved1: u16,
+        w_reserved2: u16,
+        w_reserved3: u16,
+        data1: usize,
+        data2: usize,
+    }
+
+    #[repr(C)]
+    struct IPersistFileVtbl {
+        query_interface: unsafe extern "system" fn(*mut c_void, *const Guid, *mut *mut c_void) -> i32,
+        add_ref: unsafe extern "system" fn(*mut c_void) -> u32,
+        release: unsafe extern "system" fn(*mut c_void) -> u32,
+        get_class_id: unsafe extern "system" fn(*mut c_void, *mut Guid) -> i32,
+        is_dirty: unsafe extern "system" fn(*mut c_void) -> i32,
+        load: unsafe extern "system" fn(*mut c_void, *const u16, u32) -> i32,
+        save: unsafe extern "system" fn(*mut c_void, *const u16, i32) -> i32,
+        save_completed: unsafe extern "system" fn(*mut c_void, *const u16) -> i32,
+        get_cur_file: unsafe extern "system" fn(*mut c_void, *mut *mut u16) -> i32,
+    }
+
+    #[repr(C)]
+    struct IPersistFile {
+        lp_vtbl: *const IPersistFileVtbl,
+    }
+
+    #[repr(C)]
+    struct IPropertyStoreVtbl {
+        query_interface: unsafe extern "system" fn(*mut c_void, *const Guid, *mut *mut c_void) -> i32,
+        add_ref: unsafe extern "system" fn(*mut c_void) -> u32,
+        release: unsafe extern "system" fn(*mut c_void) -> u32,
+        get_count: unsafe extern "system" fn(*mut c_void, *mut u32) -> i32,
+        get_at: unsafe extern "system" fn(*mut c_void, u32, *mut PropertyKey) -> i32,
+        get_value: unsafe extern "system" fn(*mut c_void, *const PropertyKey, *mut PropVariant) -> i32,
+        set_value: unsafe extern "system" fn(*mut c_void, *const PropertyKey, *const PropVariant) -> i32,
+        commit: unsafe extern "system" fn(*mut c_void) -> i32,
+    }
+
+    #[repr(C)]
+    struct IPropertyStore {
+        lp_vtbl: *const IPropertyStoreVtbl,
+    }
+
+    const CLSID_SHELL_LINK: Guid = Guid {
+        data1: 0x00021401,
+        data2: 0x0000,
+        data3: 0x0000,
+        data4: [0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46],
+    };
+    const IID_IPERSIST_FILE: Guid = Guid {
+        data1: 0x0000010B,
+        data2: 0x0000,
+        data3: 0x0000,
+        data4: [0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46],
+    };
+    const IID_IPROPERTY_STORE: Guid = Guid {
+        data1: 0x886D8EEB,
+        data2: 0x8CF2,
+        data3: 0x4446,
+        data4: [0x8D, 0x02, 0xCD, 0xBA, 0x1D, 0xBD, 0xCF, 0x99],
+    };
+    const PKEY_APP_USER_MODEL_ID: PropertyKey = PropertyKey {
+        fmtid: Guid {
+            data1: 0x9F4C2855,
+            data2: 0x9F79,
+            data3: 0x4B39,
+            data4: [0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3],
+        },
+        pid: 5,
+    };
+
+    #[link(name = "ole32")]
+    unsafe extern "system" {
+        fn CoInitializeEx(pv_reserved: *const c_void, dw_co_init: u32) -> i32;
+        fn CoUninitialize();
+        fn CoCreateInstance(
+            rclsid: *const Guid,
+            p_unk_outer: *mut c_void,
+            dw_cls_context: u32,
+            riid: *const Guid,
+            ppv: *mut *mut c_void,
+        ) -> i32;
+        fn PropVariantClear(pvar: *mut PropVariant) -> i32;
+    }
+
+    #[link(name = "shell32")]
+    unsafe extern "system" {
+        fn SHChangeNotify(
+            w_event_id: i32,
+            u_flags: u32,
+            dw_item1: *const c_void,
+            dw_item2: *const c_void,
+        );
+    }
+
+    fn wide_null(s: &std::ffi::OsStr) -> Vec<u16> {
+        s.encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    pub fn set_process_aumid_and_heal_shell() {
+        unsafe {
+            use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+            let aumid: Vec<u16> = format!("{LAUNCHER_AUMID}\0").encode_utf16().collect();
+            let _ = SetCurrentProcessExplicitAppUserModelID(aumid.as_ptr());
+        }
+
+        // Chạy ngầm đăng ký AppUserModelId & tự sửa Shortcut nếu thiếu để không cản trở 1ms khởi động nào
+        std::thread::spawn(|| {
+            register_aumid_registry();
+            if let Ok(appdata) = std::env::var("APPDATA") {
+                let base = PathBuf::from(appdata);
+                let candidates = [
+                    base.join(r"Microsoft\Windows\Start Menu\Programs\Selorson Launcher.lnk"),
+                    base.join(r"Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\Selorson Launcher.lnk"),
+                ];
+                for lnk in &candidates {
+                    if lnk.is_file() {
+                        let _ = ensure_shortcut_aumid(lnk, LAUNCHER_AUMID);
+                    }
+                }
+            }
+        });
+    }
+
+    fn register_aumid_registry() {
+        use winreg::RegKey;
+        use winreg::enums::HKEY_CURRENT_USER;
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let subkey = format!(r"Software\Classes\AppUserModelId\{LAUNCHER_AUMID}");
+        if let Ok((key, _)) = hkcu.create_subkey(&subkey) {
+            let _ = key.set_value("DisplayName", &"Selorson Launcher");
+            if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+                let dir = PathBuf::from(local_appdata).join("Selorson Launcher");
+                let ico_path = dir.join("icon.ico");
+                if !ico_path.exists() {
+                    let _ = std::fs::create_dir_all(&dir);
+                    let _ = std::fs::write(&ico_path, APP_ICON_ICO);
+                }
+                if ico_path.exists() {
+                    let _ = key.set_value("IconUri", &ico_path.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
+    /// Đảm bảo tệp `.lnk` mang đúng `System.AppUserModel.ID` để Windows 11 gộp chung 1 icon trên Taskbar.
+    /// Trả về `Ok(true)` nếu vừa cập nhật mới, `Ok(false)` nếu đã khớp sẵn (0 ghi đĩa thừa).
+    pub fn ensure_shortcut_aumid(lnk_path: &Path, expected_aumid: &str) -> Result<bool, String> {
+        unsafe {
+            let hr_init = CoInitializeEx(std::ptr::null(), 0x2); // COINIT_APARTMENTTHREADED
+            let should_uninit = hr_init >= 0;
+
+            let result = (|| -> Result<bool, String> {
+                let mut raw_pf: *mut c_void = std::ptr::null_mut();
+                let hr = CoCreateInstance(
+                    &CLSID_SHELL_LINK,
+                    std::ptr::null_mut(),
+                    1, // CLSCTX_INPROC_SERVER
+                    &IID_IPERSIST_FILE,
+                    &mut raw_pf,
+                );
+                if hr < 0 || raw_pf.is_null() {
+                    return Err(format!("CoCreateInstance(ShellLink) thất bại: 0x{hr:08x}"));
+                }
+
+                let pf = raw_pf as *mut IPersistFile;
+                let wpath = wide_null(lnk_path.as_os_str());
+                // STGM_READWRITE = 2
+                let hr_load = ((*(*pf).lp_vtbl).load)(raw_pf, wpath.as_ptr(), 2);
+                if hr_load < 0 {
+                    ((*(*pf).lp_vtbl).release)(raw_pf);
+                    return Err(format!("IPersistFile::Load thất bại: 0x{hr_load:08x}"));
+                }
+
+                let mut raw_ps: *mut c_void = std::ptr::null_mut();
+                let hr_qi =
+                    ((*(*pf).lp_vtbl).query_interface)(raw_pf, &IID_IPROPERTY_STORE, &mut raw_ps);
+                if hr_qi < 0 || raw_ps.is_null() {
+                    ((*(*pf).lp_vtbl).release)(raw_pf);
+                    return Err(format!("QueryInterface(IPropertyStore) thất bại: 0x{hr_qi:08x}"));
+                }
+
+                let ps = raw_ps as *mut IPropertyStore;
+                let mut cur_pv: PropVariant = std::mem::zeroed();
+                let mut already_matches = false;
+                if ((*(*ps).lp_vtbl).get_value)(raw_ps, &PKEY_APP_USER_MODEL_ID, &mut cur_pv) >= 0 {
+                    if cur_pv.vt == 31 && cur_pv.data1 != 0 {
+                        let ptr = cur_pv.data1 as *const u16;
+                        let mut len = 0usize;
+                        while *ptr.add(len) != 0 && len < 260 {
+                            len += 1;
+                        }
+                        let cur_str =
+                            String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len));
+                        if cur_str == expected_aumid {
+                            already_matches = true;
+                        }
+                    }
+                    let _ = PropVariantClear(&mut cur_pv);
+                }
+
+                if already_matches {
+                    ((*(*ps).lp_vtbl).release)(raw_ps);
+                    ((*(*pf).lp_vtbl).release)(raw_pf);
+                    return Ok(false);
+                }
+
+                let waumid = wide_null(std::ffi::OsStr::new(expected_aumid));
+                let set_pv = PropVariant {
+                    vt: 31, // VT_LPWSTR
+                    w_reserved1: 0,
+                    w_reserved2: 0,
+                    w_reserved3: 0,
+                    data1: waumid.as_ptr() as usize,
+                    data2: 0,
+                };
+                let hr_set =
+                    ((*(*ps).lp_vtbl).set_value)(raw_ps, &PKEY_APP_USER_MODEL_ID, &set_pv);
+                let hr_commit = ((*(*ps).lp_vtbl).commit)(raw_ps);
+                let hr_save = if hr_set >= 0 && hr_commit >= 0 {
+                    ((*(*pf).lp_vtbl).save)(raw_pf, wpath.as_ptr(), 1)
+                } else {
+                    -1
+                };
+
+                ((*(*ps).lp_vtbl).release)(raw_ps);
+                ((*(*pf).lp_vtbl).release)(raw_pf);
+
+                if hr_set < 0 || hr_commit < 0 || hr_save < 0 {
+                    return Err("Không ghi được AppUserModelID vào tệp .lnk".to_string());
+                }
+
+                // Báo cho Windows Explorer cập nhật ngay bộ đệm Taskband
+                SHChangeNotify(
+                    0x0000_2000, // SHCNE_UPDATEITEM
+                    0x0005,      // SHCNF_PATHW
+                    wpath.as_ptr() as *const c_void,
+                    std::ptr::null(),
+                );
+                Ok(true)
+            })();
+
+            if should_uninit {
+                CoUninitialize();
+            }
+            result
+        }
+    }
+}
+
 pub fn run() {
     #[cfg(windows)]
     let wakeup_handle = match acquire_single_instance_or_signal_existing() {
@@ -587,11 +873,7 @@ pub fn run() {
     };
 
     #[cfg(windows)]
-    unsafe {
-        use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
-        let aumid: Vec<u16> = "vn.selorson.launcher\0".encode_utf16().collect();
-        let _ = SetCurrentProcessExplicitAppUserModelID(aumid.as_ptr());
-    }
+    win_aumid::set_process_aumid_and_heal_shell();
 
     let manifest_path = resolve_manifest_path();
     let state_file_path = default_state_file_path();
@@ -616,6 +898,8 @@ pub fn run() {
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(shared)
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -674,6 +958,7 @@ pub fn run() {
             update_launcher_settings,
             open_filesystem_path,
             validate_manifest_now,
+            prepare_self_update_exit,
         ])
         .build(tauri::generate_context!())
         .expect("Lỗi khởi tạo ứng dụng Tauri Selorson Launcher");
@@ -760,5 +1045,35 @@ mod tests {
                 t.git.dirty_files_count
             );
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn shortcut_aumid_healer_stamps_and_is_idempotent() {
+        let tmp = tempdir().unwrap();
+        let lnk = tmp.path().join("TestLauncher.lnk");
+        // Tạo 1 shortcut trống bằng WScript.Shell (mô phỏng shortcut thiếu AUMID gây tách 2 icon)
+        let status = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!(
+                    "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{}'); $s.TargetPath='C:\\Windows\\notepad.exe'; $s.Save()",
+                    lnk.display()
+                ),
+            ])
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        // Lần 1: Thiếu AUMID -> phải đóng dấu và trả về Ok(true)
+        let first = win_aumid::ensure_shortcut_aumid(&lnk, win_aumid::LAUNCHER_AUMID)
+            .expect("Phải ghi được System.AppUserModel.ID vào .lnk");
+        assert!(first, "Lần đầu phải cập nhật .lnk");
+
+        // Lần 2: Đã khớp AUMID -> không ghi đĩa thừa, trả về Ok(false)
+        let second = win_aumid::ensure_shortcut_aumid(&lnk, win_aumid::LAUNCHER_AUMID)
+            .expect("Phải đọc lại được System.AppUserModel.ID từ .lnk");
+        assert!(!second, "Lần hai phải nhận diện đã khớp và bỏ qua ghi đĩa");
     }
 }

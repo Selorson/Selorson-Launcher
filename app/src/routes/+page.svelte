@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { getVersion } from '@tauri-apps/api/app';
+	import { relaunch } from '@tauri-apps/plugin-process';
+	import { check, type Update } from '@tauri-apps/plugin-updater';
 	import {
 		getEcosystemSnapshot,
 		installOrUpdateTool,
@@ -7,6 +10,7 @@
 		onInstallProgress,
 		onManifestReloaded,
 		openFilesystemPath,
+		prepareSelfUpdateExit,
 		setToolChannel,
 		updateLauncherSettings,
 		validateManifestNow
@@ -40,6 +44,12 @@
 	let showManifestModal = $state(false);
 	let manifestValidation = $state<ManifestValidationDto | null>(null);
 	let showSettingsModal = $state(false);
+
+	// Trạng thái tự cập nhật của chính Selorson Launcher
+	let launcherVersion = $state('0.1.1');
+	let selfUpdate = $state<Update | null>(null);
+	let selfUpdating = $state(false);
+	let selfUpdatePct = $state<number | null>(null);
 
 	// Trạng thái cài đặt / nâng cấp
 	let busyToolId = $state<string | null>(null);
@@ -248,8 +258,50 @@
 		}
 	}
 
+	async function checkSelfUpdate() {
+		try {
+			const upd = await check();
+			selfUpdate = upd ?? null;
+		} catch {
+			// Bỏ qua êm nếu chưa có bản phát hành trên GitHub hoặc đang ngoại tuyến
+		}
+	}
+
+	async function handleSelfUpdateLauncher() {
+		if (!selfUpdate || selfUpdating || busyToolId !== null) return;
+		selfUpdating = true;
+		selfUpdatePct = 0;
+		let downloaded = 0;
+		let total = 0;
+
+		try {
+			await prepareSelfUpdateExit();
+			await selfUpdate.downloadAndInstall((event) => {
+				if (event.event === 'Started') {
+					total = event.data.contentLength ?? 0;
+				} else if (event.event === 'Progress') {
+					downloaded += event.data.chunkLength;
+					if (total > 0) {
+						selfUpdatePct = Math.min(99, Math.round((downloaded * 100) / total));
+					}
+				} else if (event.event === 'Finished') {
+					selfUpdatePct = 100;
+				}
+			});
+			await relaunch();
+		} catch (e) {
+			selfUpdating = false;
+			selfUpdatePct = null;
+			showToast(`Không tự cập nhật được Launcher: ${String(e)}`, 'err');
+		}
+	}
+
 	onMount(() => {
+		getVersion()
+			.then((v) => (launcherVersion = v))
+			.catch(() => {});
 		loadSnapshot(true);
+		checkSelfUpdate();
 
 		let unlistenProgress: (() => void) | null = null;
 		let unlistenManifest: (() => void) | null = null;
@@ -303,6 +355,11 @@
 							Selorson Launcher
 						</h1>
 						<span
+							class="rounded-full border border-white/12 bg-white/[0.05] px-2 py-0.5 text-[11px] font-medium text-slate-300 tabular-nums"
+						>
+							v{launcherVersion}
+						</span>
+						<span
 							class="rounded-full border border-teal-400/30 bg-teal-500/12 px-2.5 py-0.5 text-[11px] font-semibold text-teal-300 tabular-nums"
 						>
 							{installedCount}/{snapshot?.tools.length ?? 7} sẵn sàng
@@ -334,10 +391,26 @@
 					{/each}
 				{/if}
 
+				{#if selfUpdate}
+					<button
+						type="button"
+						disabled={selfUpdating || busyToolId !== null}
+						onclick={handleSelfUpdateLauncher}
+						title={selfUpdate.body || `Nâng cấp Selorson Launcher lên ${selfUpdate.version}`}
+						class="rounded-xl bg-teal-400 px-3.5 py-2 text-xs font-bold text-slate-950 shadow transition hover:bg-teal-300 disabled:opacity-60"
+					>
+						{#if selfUpdating}
+							⏳ Đang nâng cấp Launcher{selfUpdatePct !== null ? ` (${selfUpdatePct}%)` : '...'}
+						{:else}
+							⬆️ Cập nhật Launcher ({selfUpdate.version})
+						{/if}
+					</button>
+				{/if}
+
 				{#if updatableTools.length > 0}
 					<button
 						type="button"
-						disabled={busyToolId !== null}
+						disabled={busyToolId !== null || selfUpdating}
 						onclick={handleBatchUpdateIdleTools}
 						class="rounded-xl bg-amber-400 px-3.5 py-2 text-xs font-bold text-slate-950 shadow transition hover:bg-amber-300 disabled:opacity-50"
 					>
@@ -347,8 +420,11 @@
 
 				<button
 					type="button"
-					disabled={refreshing || busyToolId !== null}
-					onclick={() => loadSnapshot(true)}
+					disabled={refreshing || busyToolId !== null || selfUpdating}
+					onclick={() => {
+						loadSnapshot(true);
+						checkSelfUpdate();
+					}}
 					class="rounded-xl border border-white/12 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/[0.1] disabled:opacity-50"
 				>
 					{refreshing ? '⟳ Đang quét...' : '🔄 Làm mới'}

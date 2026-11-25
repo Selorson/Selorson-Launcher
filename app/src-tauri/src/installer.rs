@@ -95,6 +95,18 @@ fn emit_progress(app: &AppHandle, evt: InstallProgressEvent) {
     let _ = app.emit("launcher://install-progress", evt);
 }
 
+fn format_reqwest_error(e: &reqwest::Error) -> String {
+    use std::error::Error as _;
+    if e.is_timeout() {
+        return format!("Quá thời gian chờ mạng khi đang tải dữ liệu ({e})");
+    }
+    if let Some(src) = e.source() {
+        format!("{e} ({src})")
+    } else {
+        e.to_string()
+    }
+}
+
 pub async fn execute_protected_install(
     app: &AppHandle,
     client: &reqwest::Client,
@@ -110,164 +122,190 @@ pub async fn execute_protected_install(
         InstallProgressEvent {
             tool_id: tool.id.clone(),
             tool_name: tool.name.clone(),
-            phase: "vault_lock".to_string(),
+            phase: "preflight".to_string(),
             percent: Some(5),
             downloaded_bytes: 0,
             total_bytes: None,
             message: format!(
-                "Đang kiểm tra tiến trình sống và khóa kho bảo hộ Guardian Vault cho {}...",
+                "Đang kiểm tra tiến trình sống và cổng dịch vụ của {}...",
                 tool.name
             ),
         },
     );
 
-    // Bước 1: Mở giao dịch Guardian Vault (kiểm tra khóa, cất giữ cowriter-core.exe & sao lưu DB)
+    // Bước 1: Kiểm tra nhanh tiến trình & cổng trước khi tải để không tốn băng thông hoặc sinh snapshot thừa
+    GuardianTransaction::preflight_check(tool)?;
+
+    let staging_dir = tempfile::Builder::new()
+        .prefix(&format!("selorson-{}-", tool.id))
+        .tempdir()
+        .map_err(|e| format!("Không tạo được thư mục tải tạm: {e}"))?;
+
+    let part_path = staging_dir.path().join(format!(
+        "{}_{}_setup.exe.part",
+        tool.id, remote.normalized_version
+    ));
+    let final_installer_path = staging_dir.path().join(format!(
+        "{}_{}_setup.exe",
+        tool.id, remote.normalized_version
+    ));
+
+    emit_progress(
+        app,
+        InstallProgressEvent {
+            tool_id: tool.id.clone(),
+            tool_name: tool.name.clone(),
+            phase: "downloading".to_string(),
+            percent: Some(10),
+            downloaded_bytes: 0,
+            total_bytes: None,
+            message: format!(
+                "Đang tải bộ cài {} v{} từ GitHub Releases...",
+                tool.name, remote.normalized_version
+            ),
+        },
+    );
+
+    // Bước 2: Tải gói cài đặt về bộ nhớ và kiểm tra chữ ký Ed25519 TRƯỚC KHI tạo snapshot Vault hay ghi .exe
+    let resp = client
+        .get(&remote.download_url)
+        .send()
+        .await
+        .map_err(|e| format!("Lỗi mạng khi tải bộ cài {}: {}", tool.name, format_reqwest_error(&e)))?;
+
+    if !resp.status().is_success() {
+        return Err(format!(
+            "Không tải được bộ cài (HTTP {}) từ '{}'.",
+            resp.status().as_u16(),
+            remote.download_url
+        ));
+    }
+
+    let total_bytes = resp.content_length();
+    let mut stream = resp.bytes_stream();
+    let mut downloaded_bytes: u64 = 0;
+    let mut all_bytes: Vec<u8> =
+        Vec::with_capacity(total_bytes.unwrap_or(32 * 1024 * 1024) as usize);
+    let mut last_emit = Instant::now();
+
+    while let Some(chunk_res) = stream.next().await {
+        let chunk = chunk_res.map_err(|e| {
+            format!(
+                "Gián đoạn luồng tải {}: {}",
+                tool.name,
+                format_reqwest_error(&e)
+            )
+        })?;
+        downloaded_bytes += chunk.len() as u64;
+        all_bytes.extend_from_slice(&chunk);
+
+        if last_emit.elapsed().as_millis() >= 110 {
+            let pct = total_bytes.map(|tot| {
+                if tot > 0 {
+                    (10 + ((downloaded_bytes.saturating_mul(62)) / tot)).min(72) as u8
+                } else {
+                    40
+                }
+            });
+            emit_progress(
+                app,
+                InstallProgressEvent {
+                    tool_id: tool.id.clone(),
+                    tool_name: tool.name.clone(),
+                    phase: "downloading".to_string(),
+                    percent: pct,
+                    downloaded_bytes,
+                    total_bytes,
+                    message: format!(
+                        "Đang tải {} v{} ({:.1} MB{})...",
+                        tool.name,
+                        remote.normalized_version,
+                        downloaded_bytes as f64 / 1_048_576.0,
+                        total_bytes
+                            .map(|t| format!(" / {:.1} MB", t as f64 / 1_048_576.0))
+                            .unwrap_or_default()
+                    ),
+                },
+            );
+            last_emit = Instant::now();
+        }
+    }
+
+    emit_progress(
+        app,
+        InstallProgressEvent {
+            tool_id: tool.id.clone(),
+            tool_name: tool.name.clone(),
+            phase: "verifying_signature".to_string(),
+            percent: Some(76),
+            downloaded_bytes,
+            total_bytes: Some(downloaded_bytes),
+            message: format!(
+                "Đang xác thực chữ ký số Ed25519 Minisign cho {} v{}...",
+                tool.name, remote.normalized_version
+            ),
+        },
+    );
+
+    // Bước 3: Cổng bảo mật Ed25519 TRƯỚC KHI ghi tệp .exe thực thi ra đĩa
+    verify_ed25519_package(
+        &all_bytes,
+        &remote.signature,
+        pubkey_b64,
+        &remote.normalized_version,
+        &tool.git.tag_prefix,
+    )?;
+
+    {
+        let mut f = std::fs::File::create(&part_path)
+            .map_err(|e| format!("Không ghi được bộ cài tạm: {e}"))?;
+        f.write_all(&all_bytes)
+            .map_err(|e| format!("Lỗi ghi dữ liệu bộ cài: {e}"))?;
+        f.sync_all()
+            .map_err(|e| format!("Lỗi đồng bộ đĩa bộ cài: {e}"))?;
+    }
+    // Giải phóng ngay bộ đệm RAM (VD: ~206 MB của Co-Writer) trước khi chạy NSIS
+    drop(all_bytes);
+
+    std::fs::rename(&part_path, &final_installer_path)
+        .map_err(|e| format!("Không chuyển đổi được tệp cài đặt: {e}"))?;
+
+    emit_progress(
+        app,
+        InstallProgressEvent {
+            tool_id: tool.id.clone(),
+            tool_name: tool.name.clone(),
+            phase: "vault_lock".to_string(),
+            percent: Some(82),
+            downloaded_bytes,
+            total_bytes: Some(downloaded_bytes),
+            message: format!(
+                "Chữ ký Ed25519 hợp lệ! Đang khóa kho bảo hộ Guardian Vault cho {}...",
+                tool.name
+            ),
+        },
+    );
+
+    // Bước 4: Mở giao dịch Guardian Vault ngay trước giây chạy NSIS (cất giữ cowriter-core.exe & sao lưu DB)
     let guard = GuardianTransaction::begin(tool, vault_root, max_backup_gens)?;
 
-    // Bọc phần tải + xác thực + chạy NSIS để đảm bảo LUÔN khôi phục Vault dù bước nào lỗi
-    let install_outcome: Result<(), String> = async {
-        let staging_dir = tempfile::Builder::new()
-            .prefix(&format!("selorson-{}-", tool.id))
-            .tempdir()
-            .map_err(|e| format!("Không tạo được thư mục tải tạm: {e}"))?;
-
-        let part_path = staging_dir.path().join(format!(
-            "{}_{}_setup.exe.part",
-            tool.id, remote.normalized_version
-        ));
-        let final_installer_path = staging_dir.path().join(format!(
-            "{}_{}_setup.exe",
-            tool.id, remote.normalized_version
-        ));
-
-        emit_progress(
-            app,
-            InstallProgressEvent {
-                tool_id: tool.id.clone(),
-                tool_name: tool.name.clone(),
-                phase: "downloading".to_string(),
-                percent: Some(10),
-                downloaded_bytes: 0,
-                total_bytes: None,
-                message: format!(
-                    "Đang tải bộ cài {} v{} từ GitHub Releases...",
-                    tool.name, remote.normalized_version
-                ),
-            },
-        );
-
-        let resp = client
-            .get(&remote.download_url)
-            .send()
-            .await
-            .map_err(|e| format!("Lỗi mạng khi tải bộ cài {}: {e}", tool.name))?;
-
-        if !resp.status().is_success() {
-            return Err(format!(
-                "Không tải được bộ cài (HTTP {}) từ '{}'.",
-                resp.status().as_u16(),
-                remote.download_url
-            ));
-        }
-
-        let total_bytes = resp.content_length();
-        let mut stream = resp.bytes_stream();
-        let mut downloaded_bytes: u64 = 0;
-        let mut all_bytes: Vec<u8> =
-            Vec::with_capacity(total_bytes.unwrap_or(32 * 1024 * 1024) as usize);
-        let mut last_emit = Instant::now();
-
-        while let Some(chunk_res) = stream.next().await {
-            let chunk =
-                chunk_res.map_err(|e| format!("Gián đoạn luồng tải {}: {e}", tool.name))?;
-            downloaded_bytes += chunk.len() as u64;
-            all_bytes.extend_from_slice(&chunk);
-
-            if last_emit.elapsed().as_millis() >= 110 {
-                let pct = total_bytes.map(|tot| {
-                    if tot > 0 {
-                        (10 + ((downloaded_bytes.saturating_mul(65)) / tot)).min(75) as u8
-                    } else {
-                        40
-                    }
-                });
-                emit_progress(
-                    app,
-                    InstallProgressEvent {
-                        tool_id: tool.id.clone(),
-                        tool_name: tool.name.clone(),
-                        phase: "downloading".to_string(),
-                        percent: pct,
-                        downloaded_bytes,
-                        total_bytes,
-                        message: format!(
-                            "Đang tải {} v{} ({:.1} MB{})...",
-                            tool.name,
-                            remote.normalized_version,
-                            downloaded_bytes as f64 / 1_048_576.0,
-                            total_bytes
-                                .map(|t| format!(" / {:.1} MB", t as f64 / 1_048_576.0))
-                                .unwrap_or_default()
-                        ),
-                    },
-                );
-                last_emit = Instant::now();
-            }
-        }
-
-        emit_progress(
-            app,
-            InstallProgressEvent {
-                tool_id: tool.id.clone(),
-                tool_name: tool.name.clone(),
-                phase: "verifying_signature".to_string(),
-                percent: Some(78),
-                downloaded_bytes,
-                total_bytes: Some(downloaded_bytes),
-                message: format!(
-                    "Đang xác thực chữ ký số Ed25519 Minisign cho {} v{}...",
-                    tool.name, remote.normalized_version
-                ),
-            },
-        );
-
-        // Bước 3: Cổng bảo mật Ed25519 TRƯỚC KHI ghi tệp .exe thực thi ra đĩa
-        verify_ed25519_package(
-            &all_bytes,
-            &remote.signature,
-            pubkey_b64,
-            &remote.normalized_version,
-            &tool.git.tag_prefix,
-        )?;
-
-        {
-            let mut f = std::fs::File::create(&part_path)
-                .map_err(|e| format!("Không ghi được bộ cài tạm: {e}"))?;
-            f.write_all(&all_bytes)
-                .map_err(|e| format!("Lỗi ghi dữ liệu bộ cài: {e}"))?;
-            f.sync_all()
-                .map_err(|e| format!("Lỗi đồng bộ đĩa bộ cài: {e}"))?;
-        }
-        std::fs::rename(&part_path, &final_installer_path)
-            .map_err(|e| format!("Không chuyển đổi được tệp cài đặt: {e}"))?;
-
+    let nsis_outcome: Result<(), String> = async {
         emit_progress(
             app,
             InstallProgressEvent {
                 tool_id: tool.id.clone(),
                 tool_name: tool.name.clone(),
                 phase: "installing_nsis".to_string(),
-                percent: Some(85),
+                percent: Some(88),
                 downloaded_bytes,
                 total_bytes: Some(downloaded_bytes),
                 message: format!(
-                    "Chữ ký Ed25519 hợp lệ! Đang chạy trình cài đặt NSIS cho {} v{}...",
+                    "Đang chạy trình cài đặt NSIS cho {} v{}...",
                     tool.name, remote.normalized_version
                 ),
             },
         );
 
-        // Bước 4: Chạy trình cài đặt NSIS ở chế độ thụ động (/P /UPDATE) chuẩn Tauri 2
         let mut cmd = Command::new(&final_installer_path);
         cmd.args(["/P", "/UPDATE"]);
         let status = cmd
@@ -302,11 +340,13 @@ pub async fn execute_protected_install(
         },
     );
 
-    // Bước 5: LUÔN hoàn trả immutable_files (như cowriter-core.exe) & kiểm tra DB
+    // Bước 5: LUÔN hoàn trả immutable_files (như cowriter-core.exe) & kiểm tra DB dù NSIS thành công hay lỗi
     let vault_report = guard.restore_and_verify()?;
 
-    // Nếu bước tải/ký/NSIS bên trên thất bại thì trả lỗi sau khi đã bảo toàn xong Vault
-    install_outcome?;
+    // Xóa ngay thư mục bộ cài tạm sau khi NSIS chạy xong
+    drop(staging_dir);
+
+    nsis_outcome?;
 
     // Bước 6: Quét lại đường dẫn .exe vừa cài để ghi sổ cái ledger
     let procs = capture_running_processes();

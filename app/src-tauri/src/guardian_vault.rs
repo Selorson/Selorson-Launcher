@@ -94,15 +94,9 @@ fn prune_old_snapshots(tool_vault_dir: &Path, keep: usize) {
 }
 
 impl GuardianTransaction {
-    /// Khởi tạo giao dịch bảo hộ trước khi chạy trình cài đặt NSIS:
-    /// 1. Từ chối ngay nếu tiến trình của công cụ hoặc sidecar đang chạy / cổng bảo vệ đang mở.
-    /// 2. Khóa bất biến mọi tệp trong `immutable_files` (VD: cowriter-core.exe) kèm mã băm SHA-256.
-    /// 3. Tạo bản chụp lăn (rolling snapshot) cho DB SQLite & tệp khóa bảo mật.
-    pub fn begin(
-        tool: &ToolManifest,
-        vault_root: &Path,
-        max_backup_generations: usize,
-    ) -> Result<Self, String> {
+    /// Kiểm tra nhanh tiến trình sống & cổng dịch vụ trước khi tải bộ cài dung lượng lớn,
+    /// tránh tốn băng thông hoặc sinh bản sao lưu thừa nếu công cụ đang mở.
+    pub fn preflight_check(tool: &ToolManifest) -> Result<(), String> {
         let running = capture_running_processes();
         let mut active_procs = Vec::new();
         for p in &tool.protection.running_processes {
@@ -126,6 +120,20 @@ impl GuardianTransaction {
                 ));
             }
         }
+
+        Ok(())
+    }
+
+    /// Khởi tạo giao dịch bảo hộ ngay trước khi chạy trình cài đặt NSIS:
+    /// 1. Từ chối ngay nếu tiến trình của công cụ hoặc sidecar đang chạy / cổng bảo vệ đang mở.
+    /// 2. Khóa bất biến mọi tệp trong `immutable_files` (VD: cowriter-core.exe) kèm mã băm SHA-256.
+    /// 3. Tạo bản chụp lăn (rolling snapshot) cho DB SQLite & tệp khóa bảo mật.
+    pub fn begin(
+        tool: &ToolManifest,
+        vault_root: &Path,
+        max_backup_generations: usize,
+    ) -> Result<Self, String> {
+        Self::preflight_check(tool)?;
 
         let stamp = Utc::now().format("%Y%m%d-%H%M%S-%3f").to_string();
         let tool_vault_dir = vault_root.join(&tool.id);

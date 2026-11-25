@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Quyền mặc định cho cửa sổ chính Selorson Launcher","local":true,"windows":["main"],"permissions":["core:default","opener:default"]}}
+{"default":{"identifier":"default","description":"Quyền mặc định cho cửa sổ chính Selorson Launcher","local":true,"windows":["main"],"permissions":["core:default","opener:default","updater:default","process:default"]}}

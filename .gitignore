@@ -4,6 +4,8 @@ build/
 .svelte-kit/
 dist/
 *.sig
+*.key
 signing.key
+release-notes-current.md
 .DS_Store
 Thumbs.db

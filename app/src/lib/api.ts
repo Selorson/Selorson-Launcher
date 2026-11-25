@@ -51,6 +51,10 @@ export async function validateManifestNow(): Promise<ManifestValidationDto> {
 	return invoke<ManifestValidationDto>('validate_manifest_now');
 }
 
+export async function prepareSelfUpdateExit(): Promise<void> {
+	return invoke<void>('prepare_self_update_exit');
+}
+
 export async function onInstallProgress(
 	handler: (evt: InstallProgressEvent) => void
 ): Promise<UnlistenFn> {
