@@ -5,8 +5,11 @@
 	let {
 		tool,
 		busyToolId,
+		globalBusy = false,
+		isLaunching = false,
 		onLaunch,
 		onInstallOrUpdate,
+		onRollback,
 		onOpenGitDrawer,
 		onOpenReleaseNotes,
 		onOpenPath,
@@ -14,8 +17,11 @@
 	}: {
 		tool: ToolFullStatusDto;
 		busyToolId: string | null;
+		globalBusy?: boolean;
+		isLaunching?: boolean;
 		onLaunch: (tool: ToolFullStatusDto) => void;
 		onInstallOrUpdate: (tool: ToolFullStatusDto) => void;
+		onRollback: (tool: ToolFullStatusDto) => void;
 		onOpenGitDrawer: (tool: ToolFullStatusDto) => void;
 		onOpenReleaseNotes: (tool: ToolFullStatusDto) => void;
 		onOpenPath: (path: string) => void;
@@ -23,9 +29,25 @@
 	} = $props();
 
 	let imgBroken = $state(false);
-	const iconSrc = $derived(!imgBroken ? resolveIconUrl(tool.icon_path) : null);
+	$effect(() => {
+		tool.icon_path;
+		tool.icon_data_url;
+		imgBroken = false;
+	});
+	const iconSrc = $derived(
+		!imgBroken ? resolveIconUrl(tool.icon_path, tool.icon_data_url) : null
+	);
 	const isThisBusy = $derived(busyToolId === tool.id);
-	const anyBusy = $derived(busyToolId !== null);
+	const anyBusy = $derived(globalBusy || busyToolId !== null);
+	const remoteVersionColorClass = $derived(
+		tool.release_state.state === 'update_available'
+			? 'text-amber-300'
+			: tool.release_state.state === 'not_installed'
+				? 'text-teal-300'
+				: tool.release_state.state === 'local_newer_or_hot_swapped'
+					? 'text-purple-300'
+					: 'text-emerald-300'
+	);
 
 	function formatMegabytes(bytes: number): string {
 		if (bytes <= 0) return '0 MB';
@@ -160,12 +182,7 @@
 				</div>
 				{#if tool.remote}
 					<div class="mt-0.5 flex items-center gap-1.5">
-						<span
-							class="truncate font-semibold tabular-nums {tool.release_state.state ===
-							'update_available'
-								? 'text-amber-300'
-								: 'text-emerald-300'}"
-						>
+						<span class="truncate font-semibold tabular-nums {remoteVersionColorClass}">
 							v{tool.remote.normalized_version}
 						</span>
 					</div>
@@ -202,6 +219,16 @@
 						>
 							<span>⚡</span>
 							<span class="truncate">+{tool.git.drift_status.commits_ahead} commit mới</span>
+						</button>
+					{:else if tool.git.drift_status.kind === 'source_behind'}
+						<button
+							type="button"
+							class="inline-flex items-center gap-1 truncate font-semibold text-sky-300 hover:underline"
+							onclick={() => onOpenGitDrawer(tool)}
+							title="Kho Git hiện đang checkout lùi {tool.git.drift_status.commits_behind} commit trước {tool.git.drift_status.base_tag}"
+						>
+							<span>⏪</span>
+							<span class="truncate">Lùi -{tool.git.drift_status.commits_behind} commit</span>
 						</button>
 					{:else if tool.git.drift_status.kind === 'hot_swapped_ahead'}
 						<button
@@ -298,27 +325,40 @@
 				</button>
 				<button
 					type="button"
-					disabled={isThisBusy}
+					disabled={anyBusy || isLaunching}
 					onclick={() => onLaunch(tool)}
-					class="rounded-xl border border-white/12 bg-white/[0.06] px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/[0.12] disabled:opacity-50"
+					class="rounded-xl border border-white/12 bg-white/[0.06] px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-50"
 					title="Mở ngay phiên bản v{tool.local.installed_version ?? ''} hiện tại mà chưa cần cập nhật"
 				>
-					▶️ Mở
+					{isLaunching ? '⏳...' : '▶️ Mở'}
 				</button>
 			{:else}
 				<button
 					type="button"
-					disabled={isThisBusy}
+					disabled={anyBusy || isLaunching}
 					onclick={() => onLaunch(tool)}
-					class="flex flex-1 items-center justify-center gap-2 rounded-xl border border-teal-400/30 bg-teal-500/15 px-3.5 py-2 text-xs font-bold text-teal-200 transition hover:border-teal-400/50 hover:bg-teal-500/25 disabled:opacity-50"
+					class="flex flex-1 items-center justify-center gap-2 rounded-xl border border-teal-400/30 bg-teal-500/15 px-3.5 py-2 text-xs font-bold text-teal-200 transition hover:border-teal-400/50 hover:bg-teal-500/25 disabled:cursor-not-allowed disabled:opacity-50"
 				>
-					▶️ Mở {tool.name}
+					{isLaunching ? `⏳ Đang mở ${tool.name}...` : `▶️ Mở ${tool.name}`}
 				</button>
 			{/if}
 		</div>
 
-		<!-- Cụm nút mở nhanh thư mục & kiểm tra Git -->
+		<!-- Cụm nút mở nhanh thư mục, khôi phục Vault & kiểm tra Git -->
 		<div class="flex items-center gap-1">
+			{#if tool.local.can_rollback}
+				<button
+					type="button"
+					disabled={anyBusy || tool.local.is_running}
+					onclick={() => onRollback(tool)}
+					class="rounded-lg border border-amber-400/25 bg-amber-500/10 p-2 text-xs text-amber-200 transition hover:border-amber-400/50 hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+					title={tool.local.is_running
+						? `Hãy đóng ${tool.name} trước khi khôi phục từ Guardian Vault`
+						: `Khôi phục phiên bản ổn định trước đó từ Guardian Vault${tool.local.rollback_target_version ? ` (v${tool.local.rollback_target_version})` : ''}`}
+				>
+					⏪
+				</button>
+			{/if}
 			{#if tool.local.active_exe_path}
 				<button
 					type="button"

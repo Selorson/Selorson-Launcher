@@ -22,11 +22,15 @@
 	}
 
 	async function copyText(text: string, kind: 'release' | 'hotswap') {
-		await navigator.clipboard.writeText(text);
-		copiedKind = kind;
-		setTimeout(() => {
-			if (copiedKind === kind) copiedKind = null;
-		}, 2200);
+		try {
+			await navigator.clipboard.writeText(text);
+			copiedKind = kind;
+			setTimeout(() => {
+				if (copiedKind === kind) copiedKind = null;
+			}, 2200);
+		} catch {
+			// Bỏ qua nếu hệ thống chặn quyền clipboard tạm thời
+		}
 	}
 </script>
 
@@ -48,13 +52,19 @@
 						{tool.name}
 						{#if tool.git.branch}
 							<span class="ml-2 rounded-md bg-white/10 px-2 py-0.5 text-xs font-medium text-slate-300">
-								nhánh {tool.git.branch}
+								{tool.git.branch.startsWith('Detached HEAD')
+									? tool.git.branch
+									: `nhánh ${tool.git.branch}`}
 							</span>
 						{/if}
 					</h3>
 					<p class="mt-1 text-xs text-slate-400">
 						Đường dẫn theo dõi: <code class="text-slate-200">{tool.repo_path}</code>
 						(phạm vi: <code class="text-teal-300">{tool.watch_paths.join(', ')}</code>)
+						{#if tool.extra_repo_paths.length > 0}
+							<br />
+							Kho liên kết: <code class="text-slate-200">{tool.extra_repo_paths.join(', ')}</code>
+						{/if}
 					</p>
 				</div>
 				<button
@@ -78,7 +88,9 @@
 					<div class="flex justify-between">
 						<span class="text-slate-400">Phiên bản đang cài / GitHub Release:</span>
 						<span class="font-semibold text-white tabular-nums">
-							v{tool.local.installed_version ?? '—'} / v{tool.remote?.normalized_version ?? '—'}
+							{tool.local.installed_version ? `v${tool.local.installed_version}` : '—'} / {tool.remote?.normalized_version
+								? `v${tool.remote.normalized_version}`
+								: '—'}
 						</span>
 					</div>
 					<div class="flex justify-between">
@@ -117,6 +129,15 @@
 								</div>
 							{/each}
 						</div>
+					</div>
+				{:else if tool.git.drift_status.kind === 'source_behind'}
+					<div class="rounded-xl border border-sky-400/30 bg-sky-500/10 p-4">
+						<div class="text-sm font-bold text-sky-200">
+							⏪ Kho mã nguồn đang checkout lùi {tool.git.drift_status.commits_behind} commit trước {tool.git.drift_status.base_tag}
+						</div>
+						<p class="mt-1 text-xs leading-relaxed text-sky-100/80">
+							Bản .exe đang cài thuộc tag <strong>{tool.git.drift_status.base_tag}</strong>, trong khi cây Git cục bộ đang dừng ở một commit cũ hơn.
+						</p>
 					</div>
 				{:else if tool.git.drift_status.kind === 'hot_swapped_ahead'}
 					<div class="rounded-xl border border-purple-400/30 bg-purple-500/10 p-4">

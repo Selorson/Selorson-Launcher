@@ -8,7 +8,13 @@ import type {
 	ManifestValidationDto
 } from './types';
 
-export function resolveIconUrl(iconPath: string | null): string | null {
+export function resolveIconUrl(
+	iconPath: string | null,
+	iconDataUrl: string | null = null
+): string | null {
+	if (iconDataUrl && iconDataUrl.startsWith('data:image/')) {
+		return iconDataUrl;
+	}
 	if (!iconPath) return null;
 	try {
 		return convertFileSrc(iconPath);
@@ -27,6 +33,10 @@ export async function launchTool(toolId: string): Promise<string> {
 
 export async function installOrUpdateTool(toolId: string): Promise<InstallResultDto> {
 	return invoke<InstallResultDto>('install_or_update_tool', { toolId });
+}
+
+export async function rollbackTool(toolId: string): Promise<InstallResultDto> {
+	return invoke<InstallResultDto>('rollback_tool', { toolId });
 }
 
 export async function setToolChannel(toolId: string, channel: string): Promise<void> {
@@ -51,8 +61,8 @@ export async function validateManifestNow(): Promise<ManifestValidationDto> {
 	return invoke<ManifestValidationDto>('validate_manifest_now');
 }
 
-export async function prepareSelfUpdateExit(): Promise<void> {
-	return invoke<void>('prepare_self_update_exit');
+export async function prepareSelfUpdateExit(quit = true): Promise<void> {
+	return invoke<void>('prepare_self_update_exit', { quit });
 }
 
 export async function onInstallProgress(
@@ -63,4 +73,8 @@ export async function onInstallProgress(
 
 export async function onManifestReloaded(handler: () => void): Promise<UnlistenFn> {
 	return listen('launcher://manifest-reloaded', () => handler());
+}
+
+export async function onCloseBlocked(handler: (msg: string) => void): Promise<UnlistenFn> {
+	return listen<string>('launcher://close-blocked', (e) => handler(e.payload));
 }

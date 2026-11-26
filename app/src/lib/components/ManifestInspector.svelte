@@ -53,9 +53,9 @@
 					<div class="font-bold text-white">Cách thêm Công cụ thứ 8 trong 30 giây:</div>
 					<p class="mt-1.5 text-slate-400">
 						Chỉ cần thêm một khối JSON mới vào mảng <code class="text-teal-300">tools</code> trong tệp
-						<code class="text-slate-200">ecosystem-manifest.json</code> (khai báo <code class="text-slate-200">id</code>,
-						<code class="text-slate-200">endpoint</code>, khóa công khai <code class="text-slate-200">pubkey</code> Ed25519,
-						đường dẫn <code class="text-slate-200">exe_candidates</code> và <code class="text-slate-200">git.repo_path</code>).
+						<code class="text-slate-200">ecosystem-manifest.json</code> (hoặc lưu riêng tại
+						<code class="text-slate-200">%LOCALAPPDATA%\Selorson Launcher\ecosystem-manifest.override.json</code>
+						để giữ nguyên qua mọi đợt tự cập nhật NSIS).
 						Ngay khi bấm Lưu, bộ lắng nghe tự động nạp nóng công cụ thứ 8 lên bảng điều khiển mà không cần biên dịch lại Launcher!
 					</p>
 				</div>

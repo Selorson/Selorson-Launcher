@@ -49,7 +49,6 @@
         "backup_files": [
           "%LOCALAPPDATA%\\Co-Writer\\co_writer.db",
           "%LOCALAPPDATA%\\Co-Writer\\co_writer.db-wal",
-          "%LOCALAPPDATA%\\Co-Writer\\co_writer.db-shm",
           "%LOCALAPPDATA%\\Co-Writer\\master.key",
           "%LOCALAPPDATA%\\Co-Writer\\secret.key",
           "%LOCALAPPDATA%\\Co-Writer\\rubric.yaml"
@@ -74,12 +73,13 @@
       "install": {
         "installer_kind": "tauri-nsis",
         "exe_candidates": [
+          "%LOCALAPPDATA%\\ToneForge Studio\\ToneForge_Studio.exe",
           "%LOCALAPPDATA%\\ToneForge Studio\\toneforge-studio.exe",
           "%LOCALAPPDATA%\\ToneForge Studio\\ToneForge Studio.exe",
           "F:\\FL studio\\toneforge\\ToneForge_Studio.exe"
         ],
         "registry_names": ["ToneForge Studio", "ToneForge"],
-        "exe_filename": "toneforge-studio.exe"
+        "exe_filename": "ToneForge_Studio.exe"
       },
       "updater": {
         "default_channel": "stable",
@@ -102,7 +102,7 @@
       },
       "git": {
         "repo_path": "%ECOSYSTEM_ROOT%\\ToneForge",
-        "watch_paths": ["."],
+        "watch_paths": ["shell", "crates", "apps", "ui-svelte5-wgpu", "ui-svelte-webgpu", "Cargo.toml"],
         "tag_prefix": "v",
         "hot_swap_hint": "Nhờ AI đóng tag phát hành mới cho ToneForge tại F:\\FL studio\\toneforge để GitHub Actions tự xuất bản cài chuẩn."
       }
@@ -139,8 +139,7 @@
         "immutable_files": [],
         "backup_files": [
           "%LOCALAPPDATA%\\Akunarch\\akunarch.db",
-          "%LOCALAPPDATA%\\Akunarch\\akunarch.db-wal",
-          "%LOCALAPPDATA%\\Akunarch\\akunarch.db-shm"
+          "%LOCALAPPDATA%\\Akunarch\\akunarch.db-wal"
         ],
         "verify_external_paths": []
       },
@@ -184,14 +183,24 @@
           { "port": 8001, "label": "Selorson Backend (:8001)", "block_update_when_open": false }
         ],
         "immutable_files": [],
-        "backup_files": [],
+        "backup_files": [
+          "%APPDATA%\\com.selorson.app\\backend.env",
+          "%APPDATA%\\com.selorson.app\\backend.production.env",
+          "%LOCALAPPDATA%\\Selorson Admin\\alpha_media_cache.json"
+        ],
         "verify_external_paths": []
       },
       "git": {
         "repo_path": "%ECOSYSTEM_ROOT%\\Selorson\\frontend-v3",
         "watch_paths": ["src", "src-tauri", "static"],
+        "extra_repos": [
+          {
+            "repo_path": "%ECOSYSTEM_ROOT%\\Selorson\\backend-v3",
+            "watch_paths": ["src", "migrations", "Cargo.toml"]
+          }
+        ],
         "tag_prefix": "desktop-admin-v",
-        "hot_swap_hint": "Nhờ AI build flavor desktop-admin tại E:\\Selorson\\frontend-v3 hoặc đẩy tag desktop-admin-vX.Y.Z lên GitHub."
+        "hot_swap_hint": "Nhờ AI build flavor desktop-admin tại E:\\Selorson\\frontend-v3 (kèm backend-v3) hoặc đẩy tag desktop-admin-vX.Y.Z lên GitHub."
       }
     },
     {
@@ -217,12 +226,20 @@
           "rtx": {
             "label": "Bản RTX (Máy chủ GPU)",
             "endpoint": "https://github.com/Selorson/Neuro-Fox-Release/releases/latest/download/latest-rtx.json",
-            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE0NjRGRTlGNDMxNERCREYKUldUZjJ4UkRuLzVrRlBrbGYwTWJsaXJJb1JaYUQ2NVhQZEovZzRDbHpaa0VWaURxQjFQMERUb2IK"
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE0NjRGRTlGNDMxNERCREYKUldUZjJ4UkRuLzVrRlBrbGYwTWJsaXJJb1JaYUQ2NVhQZEovZzRDbHpaa0VWaURxQjFQMERUb2IK",
+            "exe_candidates": [
+              "%LOCALAPPDATA%\\NeuroForge RTX\\neuroforge.exe"
+            ],
+            "registry_names": ["NeuroForge RTX"]
           },
           "standard": {
             "label": "Bản Tiêu chuẩn",
             "endpoint": "https://github.com/Selorson/Neuro-Fox-Release/releases/latest/download/latest.json",
-            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE0NjRGRTlGNDMxNERCREYKUldUZjJ4UkRuLzVrRlBrbGYwTWJsaXJJb1JaYUQ2NVhQZEovZzRDbHpaa0VWaURxQjFQMERUb2IK"
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE0NjRGRTlGNDMxNERCREYKUldUZjJ4UkRuLzVrRlBrbGYwTWJsaXJJb1JaYUQ2NVhQZEovZzRDbHpaa0VWaURxQjFQMERUb2IK",
+            "exe_candidates": [
+              "%LOCALAPPDATA%\\NeuroForge\\neuroforge.exe"
+            ],
+            "registry_names": ["NeuroForge"]
           }
         }
       },
@@ -232,7 +249,12 @@
           { "port": 9222, "label": "Trình duyệt tự động (:9222)", "block_update_when_open": true }
         ],
         "immutable_files": [],
-        "backup_files": [],
+        "backup_files": [
+          "%APPDATA%\\com.neuroforge.app\\database.sqlite",
+          "%APPDATA%\\com.neuroforge.app\\database.sqlite-wal",
+          "%APPDATA%\\com.neuroforge.app\\secret.key",
+          "%APPDATA%\\com.neuroforge.app\\chatgpt_auth.json"
+        ],
         "verify_external_paths": []
       },
       "git": {

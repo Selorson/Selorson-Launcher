@@ -22,6 +22,8 @@ export interface DiscoveredToolLocal {
 	active_processes: string[];
 	open_ports: OpenPortStatus[];
 	immutable_guards: ImmutableFileStatus[];
+	can_rollback: boolean;
+	rollback_target_version: string | null;
 }
 
 export interface GitCommitSummary {
@@ -37,6 +39,7 @@ export type GitDriftStatus =
 	| { kind: 'not_installed' }
 	| { kind: 'in_sync' }
 	| { kind: 'source_ahead'; commits_ahead: number; comparison_basis: string }
+	| { kind: 'source_behind'; commits_behind: number; base_tag: string }
 	| { kind: 'hot_swapped_ahead'; commits_since_tag: number; base_tag: string };
 
 export interface GitRepoReport {
@@ -79,10 +82,12 @@ export interface ToolFullStatusDto {
 	category: string;
 	accent_color: string;
 	icon_path: string | null;
+	icon_data_url: string | null;
 	selected_channel: string;
 	available_channels: ChannelOptionDto[];
 	repo_path: string;
 	watch_paths: string[];
+	extra_repo_paths: string[];
 	tag_prefix: string;
 	hot_swap_hint: string | null;
 	local: DiscoveredToolLocal;
@@ -107,6 +112,7 @@ export interface EcosystemSnapshotDto {
 	settings: LauncherSettings;
 	tools: ToolFullStatusDto[];
 	checked_at_iso: string;
+	active_install_tool_id: string | null;
 }
 
 export interface InstallProgressEvent {

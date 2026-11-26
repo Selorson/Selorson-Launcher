@@ -1,16 +1,17 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { getVersion } from '@tauri-apps/api/app';
-	import { relaunch } from '@tauri-apps/plugin-process';
 	import { check, type Update } from '@tauri-apps/plugin-updater';
 	import {
 		getEcosystemSnapshot,
 		installOrUpdateTool,
 		launchTool,
+		onCloseBlocked,
 		onInstallProgress,
 		onManifestReloaded,
 		openFilesystemPath,
 		prepareSelfUpdateExit,
+		rollbackTool,
 		setToolChannel,
 		updateLauncherSettings,
 		validateManifestNow
@@ -40,27 +41,41 @@
 
 	// Ngăn kéo & hộp thoại
 	let activeGitToolId = $state<string | null>(null);
-	let releaseNotesTool = $state<ToolFullStatusDto | null>(null);
+	let releaseNotesToolId = $state<string | null>(null);
 	let showManifestModal = $state(false);
 	let manifestValidation = $state<ManifestValidationDto | null>(null);
 	let showSettingsModal = $state(false);
 
 	// Trạng thái tự cập nhật của chính Selorson Launcher
-	let launcherVersion = $state('0.1.1');
+	let launcherVersion = $state('0.1.2');
 	let selfUpdate = $state<Update | null>(null);
 	let selfUpdating = $state(false);
 	let selfUpdatePct = $state<number | null>(null);
 
-	// Trạng thái cài đặt / nâng cấp
+	// Trạng thái cài đặt / nâng cấp / khôi phục
 	let busyToolId = $state<string | null>(null);
+	let localInvokeActive = false;
+	let launchingIds = $state<Record<string, boolean>>({});
+	let rollbackConfirmToolId = $state<string | null>(null);
 	let showProgressModal = $state(false);
 	let currentProgress = $state<InstallProgressEvent | null>(null);
 	let progressLogs = $state<string[]>([]);
 	let lastInstallResult = $state<InstallResultDto | null>(null);
 	let installError = $state<string | null>(null);
 
+	let latestSnapshotReqId = 0;
+	let activeSnapshotRequests = 0;
+
 	const activeGitTool = $derived(
 		snapshot?.tools.find((t) => t.id === activeGitToolId) ?? null
+	);
+
+	const releaseNotesTool = $derived(
+		snapshot?.tools.find((t) => t.id === releaseNotesToolId) ?? null
+	);
+
+	const rollbackConfirmTool = $derived(
+		snapshot?.tools.find((t) => t.id === rollbackConfirmToolId) ?? null
 	);
 
 	const installedCount = $derived(
@@ -113,29 +128,62 @@
 	}
 
 	async function loadSnapshot(forceRemote = false) {
+		const reqId = ++latestSnapshotReqId;
+		activeSnapshotRequests += 1;
 		try {
 			if (snapshot) refreshing = true;
 			else loading = true;
-			snapshot = await getEcosystemSnapshot(forceRemote);
+			const data = await getEcosystemSnapshot(forceRemote);
+			if (reqId === latestSnapshotReqId) {
+				snapshot = data;
+				if (!localInvokeActive) {
+					busyToolId = data.active_install_tool_id;
+					if (data.active_install_tool_id) {
+						showProgressModal = true;
+					}
+				}
+			}
 		} catch (e) {
-			showToast(String(e), 'err');
+			if (reqId === latestSnapshotReqId) {
+				showToast(String(e), 'err');
+			}
 		} finally {
-			loading = false;
-			refreshing = false;
+			activeSnapshotRequests = Math.max(0, activeSnapshotRequests - 1);
+			if (activeSnapshotRequests === 0) {
+				loading = false;
+				refreshing = false;
+			}
 		}
 	}
 
 	async function handleLaunch(tool: ToolFullStatusDto) {
+		if (busyToolId !== null || selfUpdating || launchingIds[tool.id]) return;
+		launchingIds = { ...launchingIds, [tool.id]: true };
+		const wasAlreadyRunning = tool.local.is_running;
 		try {
 			await launchTool(tool.id);
-			showToast(`Đã khởi chạy ${tool.name}`);
-			setTimeout(() => loadSnapshot(false), 1400);
+			showToast(
+				wasAlreadyRunning
+					? `Đã chuyển tới cửa sổ đang mở của ${tool.name}`
+					: `Đã khởi chạy ${tool.name}`
+			);
+			setTimeout(async () => {
+				await loadSnapshot(false);
+				const next = { ...launchingIds };
+				delete next[tool.id];
+				launchingIds = next;
+			}, 2000);
 		} catch (e) {
+			const next = { ...launchingIds };
+			delete next[tool.id];
+			launchingIds = next;
 			showToast(String(e), 'err');
 		}
 	}
 
 	async function handleInstallOrUpdate(tool: ToolFullStatusDto) {
+		if (busyToolId !== null || selfUpdating) return;
+		localInvokeActive = true;
 		busyToolId = tool.id;
 		showProgressModal = true;
 		lastInstallResult = null;
@@ -159,41 +207,88 @@
 			installError = String(e);
 			progressLogs = [...progressLogs, `❌ Lỗi: ${String(e)}`];
 		} finally {
+			localInvokeActive = false;
+			busyToolId = null;
+		}
+	}
+
+	function handleRequestRollback(tool: ToolFullStatusDto) {
+		if (busyToolId || selfUpdating || tool.local.is_running) return;
+		rollbackConfirmToolId = tool.id;
+	}
+
+	async function executeConfirmedRollback() {
+		const tool = rollbackConfirmTool;
+		if (!tool || busyToolId || selfUpdating || tool.local.is_running) return;
+		rollbackConfirmToolId = null;
+		localInvokeActive = true;
+		busyToolId = tool.id;
+		showProgressModal = true;
+		lastInstallResult = null;
+		installError = null;
+		progressLogs = [
+			`[${new Date().toLocaleTimeString('vi-VN')}] Bắt đầu khôi phục ${tool.name} từ Guardian Vault...`
+		];
+		currentProgress = {
+			tool_id: tool.id,
+			tool_name: tool.name,
+			phase: 'rolling_back',
+			percent: 20,
+			downloaded_bytes: 0,
+			total_bytes: null,
+			message: `Đang kiểm tra SHA-256 bản sao lưu của ${tool.name}...`
+		};
+
+		try {
+			const res = await rollbackTool(tool.id);
+			lastInstallResult = res;
+			await loadSnapshot(false);
+		} catch (e) {
+			installError = String(e);
+			progressLogs = [...progressLogs, `❌ Lỗi khôi phục: ${String(e)}`];
+		} finally {
+			localInvokeActive = false;
 			busyToolId = null;
 		}
 	}
 
 	async function handleBatchUpdateIdleTools() {
-		if (updatableTools.length === 0 || busyToolId) return;
+		if (updatableTools.length === 0 || busyToolId !== null || selfUpdating) return;
 		const queue = [...updatableTools];
+		localInvokeActive = true;
 		showProgressModal = true;
 		lastInstallResult = null;
 		installError = null;
+		currentProgress = null;
 		progressLogs = [
 			`[${new Date().toLocaleTimeString('vi-VN')}] Bắt đầu nâng cấp tuần tự ${queue.length} công cụ đang rảnh...`
 		];
 
-		for (const tool of queue) {
-			busyToolId = tool.id;
-			try {
-				const res = await installOrUpdateTool(tool.id);
-				lastInstallResult = res;
-				progressLogs = [
-					...progressLogs,
-					`✓ Hoàn tất ${tool.name} -> v${res.installed_version}`
-				];
-			} catch (e) {
-				installError = `${tool.name}: ${String(e)}`;
-				progressLogs = [...progressLogs, `❌ Dừng tại ${tool.name}: ${String(e)}`];
-				break;
+		try {
+			for (const tool of queue) {
+				busyToolId = tool.id;
+				try {
+					const res = await installOrUpdateTool(tool.id);
+					lastInstallResult = res;
+					progressLogs = [
+						...progressLogs,
+						`✓ Hoàn tất ${tool.name} -> v${res.installed_version}`
+					];
+				} catch (e) {
+					installError = `${tool.name}: ${String(e)}`;
+					progressLogs = [...progressLogs, `❌ Dừng tại ${tool.name}: ${String(e)}`];
+					break;
+				}
 			}
+		} finally {
+			localInvokeActive = false;
+			busyToolId = null;
 		}
-
-		busyToolId = null;
 		await loadSnapshot(false);
 	}
 
 	async function handleChangeChannel(toolId: string, channel: string) {
+		if (busyToolId !== null || selfUpdating) return;
 		try {
 			await setToolChannel(toolId, channel);
 			await loadSnapshot(true);
@@ -225,8 +320,15 @@
 	}
 
 	async function handleValidateManifest() {
-		manifestValidation = await validateManifestNow();
-		await loadSnapshot(true);
+		try {
+			const res = await validateManifestNow();
+			manifestValidation = res;
+			if (res.valid) {
+				await loadSnapshot(true);
+			}
+		} catch (e) {
+			showToast(String(e), 'err');
+		}
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -239,13 +341,27 @@
 		) {
 			return;
 		}
-		if (showProgressModal || showManifestModal || showSettingsModal || activeGitToolId || releaseNotesTool) {
+		if (
+			showProgressModal ||
+			showManifestModal ||
+			showSettingsModal ||
+			activeGitToolId ||
+			releaseNotesTool ||
+			rollbackConfirmTool
+		) {
 			if (e.key === 'Escape') {
 				activeGitToolId = null;
-				releaseNotesTool = null;
+				releaseNotesToolId = null;
 				showManifestModal = false;
 				showSettingsModal = false;
+				rollbackConfirmToolId = null;
+				if (showProgressModal && busyToolId === null) {
+					showProgressModal = false;
+				}
 			}
+			return;
+		}
+		if (busyToolId !== null || selfUpdating) {
 			return;
 		}
 		if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key >= '1' && e.key <= '9') {
@@ -275,7 +391,7 @@
 		let total = 0;
 
 		try {
-			await prepareSelfUpdateExit();
+			await prepareSelfUpdateExit(true);
 			await selfUpdate.downloadAndInstall((event) => {
 				if (event.event === 'Started') {
 					total = event.data.contentLength ?? 0;
@@ -288,8 +404,9 @@
 					selfUpdatePct = 100;
 				}
 			});
-			await relaunch();
+			// Trên Windows NSIS, tauri-plugin-updater v2 đã tự kích hoạt bộ cài & thoát tiến trình; không gọi relaunch() chồng!
 		} catch (e) {
+			await prepareSelfUpdateExit(false).catch(() => {});
 			selfUpdating = false;
 			selfUpdatePct = null;
 			showToast(`Không tự cập nhật được Launcher: ${String(e)}`, 'err');
@@ -303,8 +420,10 @@
 		loadSnapshot(true);
 		checkSelfUpdate();
 
+		let disposed = false;
 		let unlistenProgress: (() => void) | null = null;
 		let unlistenManifest: (() => void) | null = null;
+		let unlistenCloseBlocked: (() => void) | null = null;
 
 		onInstallProgress((evt) => {
 			currentProgress = evt;
@@ -315,21 +434,50 @@
 					progressLogs = [...progressLogs, `[${stamp}] ${evt.message}`];
 				}
 			}
-		}).then((fn) => (unlistenProgress = fn));
+			// Nếu cửa sổ vừa dựng lại từ Tray giữa giao dịch đang chạy ngầm -> tự mở khóa khi nhận sự kiện kết thúc!
+			if (!localInvokeActive && (evt.phase === 'completed' || evt.phase === 'failed')) {
+				busyToolId = null;
+				if (evt.phase === 'failed') {
+					installError = evt.message;
+				}
+				loadSnapshot(false);
+			}
+		}).then((fn) => {
+			if (disposed) fn();
+			else unlistenProgress = fn;
+		});
 
 		onManifestReloaded(() => {
 			showToast('Phát hiện thay đổi trong ecosystem-manifest.json — Đã tự động nạp nóng!');
 			loadSnapshot(true);
-		}).then((fn) => (unlistenManifest = fn));
+		}).then((fn) => {
+			if (disposed) fn();
+			else unlistenManifest = fn;
+		});
 
+		onCloseBlocked((msg) => {
+			showProgressModal = true;
+			showToast(msg, 'err');
+		}).then((fn) => {
+			if (disposed) fn();
+			else unlistenCloseBlocked = fn;
+		});
+
+		let lastFocusAt = 0;
 		const focusRefresh = () => {
-			if (!busyToolId) loadSnapshot(false);
+			const now = Date.now();
+			if (now - lastFocusAt < 5000) return;
+			if (busyToolId !== null || selfUpdating || activeSnapshotRequests > 0) return;
+			lastFocusAt = now;
+			loadSnapshot(false);
 		};
 		window.addEventListener('focus', focusRefresh);
 
 		return () => {
+			disposed = true;
 			unlistenProgress?.();
 			unlistenManifest?.();
+			unlistenCloseBlocked?.();
 			window.removeEventListener('focus', focusRefresh);
 		};
 	});
@@ -416,6 +564,13 @@
 					>
 						🚀 Cập nhật tất cả rảnh ({updatableTools.length})
 					</button>
+				{:else if updateAvailableCount > 0}
+					<span
+						class="rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-200/90"
+						title="Các công cụ có bản mới hiện đang chạy hoặc đang giữ bản Hot-Swap cục bộ nên được tự động khóa bảo vệ khỏi cập nhật hàng loạt"
+					>
+						🔒 {updateAvailableCount} bản mới (đang mở / Hot-Swap)
+					</span>
 				{/if}
 
 				<button
@@ -538,10 +693,13 @@
 					<ToolCard
 						{tool}
 						{busyToolId}
+						globalBusy={busyToolId !== null || selfUpdating}
+						isLaunching={Boolean(launchingIds[tool.id])}
 						onLaunch={handleLaunch}
 						onInstallOrUpdate={handleInstallOrUpdate}
+						onRollback={handleRequestRollback}
 						onOpenGitDrawer={(t) => (activeGitToolId = t.id)}
-						onOpenReleaseNotes={(t) => (releaseNotesTool = t)}
+						onOpenReleaseNotes={(t) => (releaseNotesToolId = t.id)}
 						onOpenPath={handleOpenPath}
 						onChangeChannel={handleChangeChannel}
 					/>
@@ -572,6 +730,7 @@
 	<!-- Hộp thoại tiến trình Guardian Vault -->
 	<UpdateProgressModal
 		open={showProgressModal}
+		isBusy={busyToolId !== null}
 		progress={currentProgress}
 		logs={progressLogs}
 		lastResult={lastInstallResult}
@@ -601,6 +760,47 @@
 		/>
 	{/if}
 
+	<!-- Hộp thoại xác nhận khôi phục phiên bản từ Guardian Vault -->
+	{#if rollbackConfirmTool}
+		<div
+			class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs"
+			role="dialog"
+			aria-modal="true"
+		>
+			<div class="w-full max-w-md rounded-2xl border border-amber-400/30 bg-[#0E1B1D] p-6 shadow-2xl">
+				<div class="text-xs font-semibold tracking-wider text-amber-300 uppercase">
+					Guardian Vault · Khôi Phục Nguyên Tử
+				</div>
+				<h3 class="font-display mt-1 text-lg font-bold text-white">
+					Khôi phục {rollbackConfirmTool.name}{rollbackConfirmTool.local.rollback_target_version
+						? ` về v${rollbackConfirmTool.local.rollback_target_version}`
+						: ''}?
+				</h3>
+				<p class="mt-2.5 text-xs leading-relaxed text-slate-300">
+					Launcher sẽ kiểm khớp 100% chữ ký băm <code class="text-amber-200">SHA-256</code> trong kho
+					sao lưu gần nhất và hoàn trả nguyên tử tệp thực thi ổn định kèm cơ sở dữ liệu / khóa cấu
+					hình của <strong>{rollbackConfirmTool.name}</strong>.
+				</p>
+				<div class="mt-5 flex justify-end gap-2 border-t border-white/10 pt-4">
+					<button
+						type="button"
+						onclick={() => (rollbackConfirmToolId = null)}
+						class="rounded-xl border border-white/12 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-white/10"
+					>
+						Hủy
+					</button>
+					<button
+						type="button"
+						onclick={executeConfirmedRollback}
+						class="rounded-xl bg-amber-400 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-300"
+					>
+						⏪ Xác nhận khôi phục
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+
 	<!-- Hộp thoại xem Ghi chú phát hành (Release Notes) -->
 	{#if releaseNotesTool}
 		<div
@@ -620,7 +820,7 @@
 					</div>
 					<button
 						type="button"
-						onclick={() => (releaseNotesTool = null)}
+						onclick={() => (releaseNotesToolId = null)}
 						class="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:bg-white/10"
 					>
 						Đóng ✕

@@ -1,3 +1,17 @@
+# Selorson Launcher v0.1.2 — Gia Cố Toàn Diện Guardian Vault · Khôi Phục Rollback 1 Chạm · Git Drift Đa Kho Không Khóa Index
+
+## Có gì mới
+- **An toàn tuyệt đối `Guardian Vault` & Khôi phục 1 chạm (`rollback_tool`):**
+  - Ghi nhật ký nguyên tử `txn-journal.json` và tự động phục hồi giao dịch sập dở ngay lúc khởi động (chống băm nhầm `cowriter-core.exe`), kèm retry `15 × 200 ms` vượt qua `os error 32 / 5` của Windows Defender.
+  - Sao lưu cả tệp thực thi `.exe` ổn định trước đó kèm `snapshot-meta.json` và nút **Khôi phục (`⏪`)** trực tiếp trên thẻ công cụ; kiểm tra & hoàn trả nguyên tử cả cụm SQLite `.db + .db-wal`, bổ sung sao lưu DB/cấu hình cho `NeuroForge` và `Selorson Admin`.
+- **Điều phối tiến trình chuẩn xác & Git Lock-Free:**
+  - Quét đường dẫn ảnh tiến trình đầy đủ (`QueryFullProcessImageNameW`), chặn mở chồng cửa sổ trùng (tự kích hoạt cửa sổ đang mở lên tiền cảnh), tách biệt kênh `RTX` ↔ `Standard` trong sổ cái và xóa bỏ hoàn toàn `block_on` trên luồng Win32.
+  - Mọi lệnh `git` chạy kèm `--no-optional-locks` + timeout `5s` (không bao giờ gây tranh chấp `.git/index.lock`), hỗ trợ theo dõi đa kho (`Selorson\backend-v3`), phát hiện `.exe` cũ trước tag và `Detached HEAD`.
+- **Gia cố bảo mật `Ed25519`, CSP & Font nội bộ:**
+  - Xác thực bắt buộc phiên bản và kênh trong trường `file:` của chữ ký `Ed25519 Minisign`, chặn hạ cấp phiên bản, bật `CSP` tường minh, mở đường dẫn chứa khoảng trắng qua `SHOpenFolderAndSelectItems` và nhúng sẵn bộ font `.woff2` ngoại tuyến.
+
+---
+
 # Selorson Launcher v0.1.1 — Tự Cập Nhật Ký Số Ed25519 · Tải Gói Lớn Không Ngắt · Chuẩn Hóa 1 Icon Taskbar
 
 ## Có gì mới

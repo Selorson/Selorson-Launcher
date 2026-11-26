@@ -1,6 +1,6 @@
 [package]
 name = "selorson-launcher"
-version = "0.1.1"
+version = "0.1.2"
 description = "Selorson Launcher — Trung tâm điều phối, cập nhật bảo hộ Ed25519 & kiểm tra mã nguồn cho Hệ sinh thái Selorson"
 repository = "https://github.com/Selorson/Selorson-Launcher.git"
 authors = ["Selorson"]

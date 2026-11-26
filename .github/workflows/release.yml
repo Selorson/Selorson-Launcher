@@ -59,7 +59,7 @@ jobs:
 
           $cargoPath = Resolve-Path "app/src-tauri/Cargo.toml"
           $cargo = Get-Content $cargoPath -Raw -Encoding UTF8
-          $cargo = $cargo -replace '(?m)^version = "[\d.]+"', "version = `"$raw`""
+          $cargo = $cargo -replace '(?m)^version = "[^"]+"', "version = `"$raw`""
           [System.IO.File]::WriteAllText($cargoPath, $cargo, $utf8NoBom)
 
       - name: Write signing key to file
@@ -104,7 +104,11 @@ jobs:
           if (Test-Path "RELEASE_NOTES.md") {
             $parts = (Get-Content "RELEASE_NOTES.md" -Raw -Encoding UTF8) -split '\r?\n---\r?\n'
             $notes = (($parts | Select-Object -First 5) -join "`n`n---`n`n").Trim()
-            if ($notes.Length -gt 60000) { $notes = $notes.Substring(0, 60000) }
+            if ($notes.Length -gt 60000) {
+              $cutLen = 60000
+              if ([char]::IsHighSurrogate($notes[$cutLen - 1])) { $cutLen -= 1 }
+              $notes = $notes.Substring(0, $cutLen)
+            }
             $utf8 = New-Object System.Text.UTF8Encoding($false)
             [System.IO.File]::WriteAllText((Join-Path (Get-Location) "release-notes-current.md"), $notes, $utf8)
           }

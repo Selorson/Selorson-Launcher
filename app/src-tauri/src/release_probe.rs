@@ -59,6 +59,13 @@ pub async fn fetch_remote_release(
     endpoint: &str,
     tag_prefix: &str,
 ) -> Result<RemoteReleaseInfo, String> {
+    if !endpoint.trim().starts_with("https://") {
+        return Err(format!(
+            "XÁC THỰC GIAO THỨC THẤT BẠI: Endpoint kênh '{}' bắt buộc sử dụng HTTPS ('{}').",
+            channel_key, endpoint
+        ));
+    }
+
     let resp = client
         .get(endpoint)
         .timeout(Duration::from_secs(15))
@@ -83,6 +90,13 @@ pub async fn fetch_remote_release(
         .get("windows-x86_64")
         .or_else(|| payload.platforms.get("windows-x86_64-nsis"))
         .ok_or_else(|| "Bản phát hành không chứa gói cài đặt cho windows-x86_64.".to_string())?;
+
+    if !asset.url.trim().starts_with("https://") {
+        return Err(format!(
+            "XÁC THỰC GIAO THỨC THẤT BẠI: Đường dẫn tải gói cài đặt bắt buộc dùng HTTPS ('{}').",
+            asset.url
+        ));
+    }
 
     let norm = normalize_semver(&payload.version, Some(tag_prefix))
         .ok_or_else(|| format!("Không phân tích được số phiên bản '{}'.", payload.version))?;

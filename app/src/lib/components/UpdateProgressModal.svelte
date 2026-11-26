@@ -3,6 +3,7 @@
 
 	let {
 		open,
+		isBusy = false,
 		progress,
 		logs,
 		lastResult,
@@ -10,6 +11,7 @@
 		onClose
 	}: {
 		open: boolean;
+		isBusy?: boolean;
 		progress: InstallProgressEvent | null;
 		logs: string[];
 		lastResult: InstallResultDto | null;
@@ -17,7 +19,7 @@
 		onClose: () => void;
 	} = $props();
 
-	const canClose = $derived(Boolean(lastResult || errorMsg));
+	const canClose = $derived(!isBusy && Boolean(lastResult || errorMsg));
 </script>
 
 {#if open}
